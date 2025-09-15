@@ -4,6 +4,12 @@
         "image": "Panorama_Außenanlagen_001.jpg",
         "links": [
             {
+                "to": "Panorama_Dach_003",
+                "yaw": -153.59064475834518,
+                "pitch": 9.238589863139449,
+                "label": "Lüftungsanlagen"
+            },
+            {
                 "to": "Panorama_Gleis1a_002",
                 "yaw": -133.19665826376325,
                 "pitch": -2.4839722282482324,
@@ -32,17 +38,384 @@
                 "yaw": 167.65482737746692,
                 "pitch": 0.0,
                 "label": "Gleis 7"
-            },
-            {
-                "to": "Panorama_Dach_003",
-                "yaw": -153.59064475834518,
-                "pitch": 9.238589863139449,
-                "label": "Lüftungsanlagen"
             }
         ],
         "map": {
             "x": 0.8781720995903015,
             "y": 0.17836038768291473
+        },
+        "floor": "EG"
+    },
+    "Panorama_Dach_001": {
+        "name": "Panorama_Dach_001",
+        "image": "Panorama_Dach_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_Dach_003",
+                "yaw": 62.97012385481236,
+                "pitch": 1.1617636666573878,
+                "label": "Lüftungsanlagen"
+            },
+            {
+                "to": "Panorama_Dach_002",
+                "yaw": 121.30204719108416,
+                "pitch": 0.0,
+                "label": "Dachmitte"
+            },
+            {
+                "to": "Panorama_Gleis1_002",
+                "yaw": 145.37486979885904,
+                "pitch": -57.803708624622125,
+                "label": "Gleis 1 Mittelgang"
+            },
+            {
+                "to": "Panorama_Büro_002",
+                "yaw": -134.10592661551195,
+                "pitch": -25.723468494084035,
+                "label": "Büro"
+            }
+        ],
+        "map": {
+            "x": 0.547295868396759,
+            "y": 0.6101800203323364
+        },
+        "floor": "DA"
+    },
+    "Panorama_Dach_002": {
+        "name": "Panorama_Dach_002",
+        "image": "Panorama_Dach_002.jpg",
+        "links": [
+            {
+                "to": "Panorama_Dach_003",
+                "yaw": 39.70227162438398,
+                "pitch": 1.3502991985089303,
+                "label": "Lüftungsanlagen"
+            },
+            {
+                "to": "Panorama_Dach_001",
+                "yaw": -58.69795280891586,
+                "pitch": 0.0,
+                "label": "Dachaufstieg"
+            }
+        ],
+        "map": {
+            "x": 0.49739208817481995,
+            "y": 0.5008981823921204
+        },
+        "floor": "DA"
+    },
+    "Panorama_Dach_003": {
+        "name": "Panorama_Dach_003",
+        "image": "Panorama_Dach_003.jpg",
+        "links": [
+            {
+                "to": "Panorama_Dach_002",
+                "yaw": -140.29772837561603,
+                "pitch": -1.3502991985089303,
+                "label": "Dachmitte"
+            },
+            {
+                "to": "Panorama_Dach_001",
+                "yaw": -117.02987614518766,
+                "pitch": -1.1617636666573878,
+                "label": "Dachaufstieg"
+            },
+            {
+                "to": "Panorama_Außenanlagen_001",
+                "yaw": 26.40935524165481,
+                "pitch": -9.238589863139449,
+                "label": "Drehgestelllager"
+            },
+            {
+                "to": "Panorama_Außenanlagen_002",
+                "yaw": 83.05078777191738,
+                "pitch": -14.503807172556625,
+                "label": "Gleis 7"
+            }
+        ],
+        "map": {
+            "x": 0.656611442565918,
+            "y": 0.3248700201511383
+        },
+        "floor": "DA"
+    },
+    "Panorama_Gleis1_002": {
+        "name": "Panorama_Gleis1_002",
+        "image": "Panorama_Gleis1_002.jpg",
+        "links": [
+            {
+                "to": "Panorama_Dach_001",
+                "yaw": -34.62513020114096,
+                "pitch": 57.803708624622125,
+                "label": "Dachaufstieg"
+            },
+            {
+                "to": "Panorama_Gleis1_001",
+                "yaw": -148.55007432388786,
+                "pitch": 0.0,
+                "label": "Gleis 1 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis2_002",
+                "yaw": 118.78762823565215,
+                "pitch": 0.0,
+                "label": "Gleis 2 Mittelgang"
+            },
+            {
+                "to": "Panorama_Werkstatt_001",
+                "yaw": -131.68473628935806,
+                "pitch": 0.0,
+                "label": "Werkstatt"
+            },
+            {
+                "to": "Panorama_UG_003",
+                "yaw": 128.02499317339897,
+                "pitch": -42.94709633944454,
+                "label": "Untergeschoss"
+            }
+        ],
+        "map": {
+            "x": 0.5235446691513062,
+            "y": 0.5883421301841736
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis1a_001": {
+        "name": "Panorama_Gleis1a_001",
+        "image": "Panorama_Gleis1a_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis3_003",
+                "yaw": 117.32387026520733,
+                "pitch": 0.0,
+                "label": "Gleis 3"
+            },
+            {
+                "to": "Panorama_Gleis1a_002",
+                "yaw": 31.19000037267193,
+                "pitch": 0.0,
+                "label": "Gleis 1a"
+            },
+            {
+                "to": "Panorama_Gleis2_002",
+                "yaw": -159.80267617059874,
+                "pitch": 0.0,
+                "label": "Gleis 2 Mittelgang"
+            },
+            {
+                "to": "Panorama_Werkstatt_002",
+                "yaw": -38.26372968927009,
+                "pitch": -2.2952334606966924,
+                "label": "Werkstatt"
+            }
+        ],
+        "map": {
+            "x": 0.5863151550292969,
+            "y": 0.5148471593856812
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis3_001": {
+        "name": "Panorama_Gleis3_001",
+        "image": "Panorama_Gleis3_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis4_001",
+                "yaw": 123.40899264045696,
+                "pitch": 0.0,
+                "label": "Gleis 4 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis2_001",
+                "yaw": -56.44760286705036,
+                "pitch": 0.0,
+                "label": "Gleis 2 Einfahrt"
+            },
+            {
+                "to": "Panorama_Außenanlagen_003",
+                "yaw": -154.67734252851696,
+                "pitch": 3.243795036173392,
+                "label": "vorderer Hof"
+            },
+            {
+                "to": "Panorama_Gleis3_002",
+                "yaw": 31.449895241523468,
+                "pitch": 0.0,
+                "label": "Gleis 3 Mittelgang"
+            }
+        ],
+        "map": {
+            "x": 0.28501829504966736,
+            "y": 0.6826314926147461
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis3_003": {
+        "name": "Panorama_Gleis3_003",
+        "image": "Panorama_Gleis3_003.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis1a_001",
+                "yaw": -62.67612973479267,
+                "pitch": 0.0,
+                "label": "Gleis 1a"
+            },
+            {
+                "to": "Panorama_Gleis3_004",
+                "yaw": 31.190005062732155,
+                "pitch": 0.0,
+                "label": "Gleis 3"
+            },
+            {
+                "to": "Panorama_Gleis3_002",
+                "yaw": -149.13759143898815,
+                "pitch": 0.0,
+                "label": "Gleis 3 Mittelgang"
+            }
+        ],
+        "map": {
+            "x": 0.5638436675071716,
+            "y": 0.4569334089756012
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis4_001": {
+        "name": "Panorama_Gleis4_001",
+        "image": "Panorama_Gleis4_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis3_001",
+                "yaw": -56.59100735954305,
+                "pitch": 0.0,
+                "label": "Gleis 3 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis4_002",
+                "yaw": 31.449895241523468,
+                "pitch": 0.0,
+                "label": "Gleis 4 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis5_001",
+                "yaw": 122.3403369258081,
+                "pitch": 0.0,
+                "label": "Gleis 5 Einfahrt"
+            },
+            {
+                "to": "Panorama_Außenanlagen_003",
+                "yaw": -143.2837629896628,
+                "pitch": 3.2708558861355987,
+                "label": "vorderer Hof"
+            }
+        ],
+        "map": {
+            "x": 0.26486894488334656,
+            "y": 0.6419554948806763
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis4_002": {
+        "name": "Panorama_Gleis4_002",
+        "image": "Panorama_Gleis4_002.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis4_001",
+                "yaw": -148.55010475847655,
+                "pitch": 0.0,
+                "label": "Gleis 4 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis5_002",
+                "yaw": 122.3403369258081,
+                "pitch": 0.0,
+                "label": "Gleis 5 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis3_002",
+                "yaw": -56.59100735954305,
+                "pitch": 0.0,
+                "label": "Gleis 3 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis4_Dachstand_001",
+                "yaw": -177.57424031937722,
+                "pitch": 27.728553226157867,
+                "label": "Dacharbeitsstand"
+            }
+        ],
+        "map": {
+            "x": 0.4701356887817383,
+            "y": 0.47479063272476196
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis5_002": {
+        "name": "Panorama_Gleis5_002",
+        "image": "Panorama_Gleis5_002.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis4_002",
+                "yaw": -57.65966307419191,
+                "pitch": 0.0,
+                "label": "Gleis 4 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis5_001",
+                "yaw": -148.55010475847655,
+                "pitch": 0.0,
+                "label": "Gleis 5 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis5_003",
+                "yaw": 30.810005537848113,
+                "pitch": 0.0,
+                "label": "Gleis 5"
+            },
+            {
+                "to": "Panorama_Gleis6_002",
+                "yaw": 121.45363670399672,
+                "pitch": 0.0,
+                "label": "Gleis 6 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis4_Dachstand_001",
+                "yaw": -95.60385161345646,
+                "pitch": 20.45041835614225,
+                "label": "Dacharbeitsstand"
+            }
+        ],
+        "map": {
+            "x": 0.4505123198032379,
+            "y": 0.43352195620536804
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis6_003": {
+        "name": "Panorama_Gleis6_003",
+        "image": "Panorama_Gleis6_003.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis6_002",
+                "yaw": -149.37859353126058,
+                "pitch": 0.0,
+                "label": "Gleis 6 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis6_004",
+                "yaw": 31.190007984190657,
+                "pitch": 0.0,
+                "label": "Gleis 6 Waschanlage"
+            },
+            {
+                "to": "Panorama_Gleis5_003",
+                "yaw": -69.40589311729137,
+                "pitch": 0.0,
+                "label": "Gleis 5"
+            }
+        ],
+        "map": {
+            "x": 0.5108701586723328,
+            "y": 0.3294469118118286
         },
         "floor": "EG"
     },
@@ -128,97 +501,16 @@
         },
         "floor": "EG"
     },
-    "Panorama_Dach_001": {
-        "name": "Panorama_Dach_001",
-        "image": "Panorama_Dach_001.jpg",
-        "links": [
-            {
-                "to": "Panorama_Dach_003",
-                "yaw": 62.97012385481236,
-                "pitch": 1.1617636666573878,
-                "label": "Lüftungsanlagen"
-            },
-            {
-                "to": "Panorama_Dach_002",
-                "yaw": 121.30204719108416,
-                "pitch": 0.0,
-                "label": "Dachmitte"
-            },
-            {
-                "to": "Panorama_Gleis1_002",
-                "yaw": 145.37486979885904,
-                "pitch": -57.803708624622125,
-                "label": "Gleis 1 Mittelgang"
-            }
-        ],
-        "map": {
-            "x": 0.547295868396759,
-            "y": 0.6101800203323364
-        },
-        "floor": "DA"
-    },
-    "Panorama_Dach_002": {
-        "name": "Panorama_Dach_002",
-        "image": "Panorama_Dach_002.jpg",
-        "links": [
-            {
-                "to": "Panorama_Dach_003",
-                "yaw": 39.70227162438398,
-                "pitch": 1.3502991985089303,
-                "label": "Lüftungsanlagen"
-            },
-            {
-                "to": "Panorama_Dach_001",
-                "yaw": -58.69795280891586,
-                "pitch": 0.0,
-                "label": "Dachaufstieg"
-            }
-        ],
-        "map": {
-            "x": 0.49739208817481995,
-            "y": 0.5008981823921204
-        },
-        "floor": "DA"
-    },
-    "Panorama_Dach_003": {
-        "name": "Panorama_Dach_003",
-        "image": "Panorama_Dach_003.jpg",
-        "links": [
-            {
-                "to": "Panorama_Dach_002",
-                "yaw": -140.29772837561603,
-                "pitch": -1.3502991985089303,
-                "label": "Dachmitte"
-            },
-            {
-                "to": "Panorama_Dach_001",
-                "yaw": -117.02987614518766,
-                "pitch": -1.1617636666573878,
-                "label": "Dachaufstieg"
-            },
-            {
-                "to": "Panorama_Außenanlagen_002",
-                "yaw": 83.05078777191738,
-                "pitch": -14.503807172556625,
-                "label": "Gleis 7"
-            },
-            {
-                "to": "Panorama_Außenanlagen_001",
-                "yaw": 26.40935524165481,
-                "pitch": -9.238589863139449,
-                "label": "Drehgestelllager"
-            }
-        ],
-        "map": {
-            "x": 0.656611442565918,
-            "y": 0.3248700201511383
-        },
-        "floor": "DA"
-    },
     "Panorama_Gleis1_001": {
         "name": "Panorama_Gleis1_001",
         "image": "Panorama_Gleis1_001.jpg",
         "links": [
+            {
+                "to": "Panorama_Gleis1_Dachstand_001",
+                "yaw": -176.54129206302653,
+                "pitch": 27.719617701895476,
+                "label": "Dacharbeitsstand"
+            },
             {
                 "to": "Panorama_Gleis2_001",
                 "yaw": 118.78749358103283,
@@ -250,70 +542,6 @@
         },
         "floor": "EG"
     },
-    "Panorama_Gleis1_002": {
-        "name": "Panorama_Gleis1_002",
-        "image": "Panorama_Gleis1_002.jpg",
-        "links": [
-            {
-                "to": "Panorama_Gleis1_001",
-                "yaw": -148.55007432388786,
-                "pitch": 0.0,
-                "label": "Gleis 1 Einfahrt"
-            },
-            {
-                "to": "Panorama_Gleis2_002",
-                "yaw": 118.78762823565215,
-                "pitch": 0.0,
-                "label": "Gleis 2 Mittelgang"
-            },
-            {
-                "to": "Panorama_Werkstatt_001",
-                "yaw": -131.68473628935806,
-                "pitch": 0.0,
-                "label": "Werkstatt"
-            },
-            {
-                "to": "Panorama_Dach_001",
-                "yaw": -34.62513020114096,
-                "pitch": 57.803708624622125,
-                "label": "Dachaufstieg"
-            }
-        ],
-        "map": {
-            "x": 0.5235446691513062,
-            "y": 0.5883421301841736
-        },
-        "floor": "EG"
-    },
-    "Panorama_Gleis1a_001": {
-        "name": "Panorama_Gleis1a_001",
-        "image": "Panorama_Gleis1a_001.jpg",
-        "links": [
-            {
-                "to": "Panorama_Gleis3_003",
-                "yaw": 117.32387026520733,
-                "pitch": 0.0,
-                "label": "Gleis 3"
-            },
-            {
-                "to": "Panorama_Gleis1a_002",
-                "yaw": 31.19000037267193,
-                "pitch": 0.0,
-                "label": "Gleis 1a"
-            },
-            {
-                "to": "Panorama_Gleis2_002",
-                "yaw": -159.80267617059874,
-                "pitch": 0.0,
-                "label": "Gleis 2 Mittelgang"
-            }
-        ],
-        "map": {
-            "x": 0.5863151550292969,
-            "y": 0.5148471593856812
-        },
-        "floor": "EG"
-    },
     "Panorama_Gleis1a_002": {
         "name": "Panorama_Gleis1a_002",
         "image": "Panorama_Gleis1a_002.jpg",
@@ -335,6 +563,12 @@
                 "yaw": 46.80334173623675,
                 "pitch": 2.4839722282482324,
                 "label": "Drehgestelllager"
+            },
+            {
+                "to": "Panorama_Werkstatt_003",
+                "yaw": -112.70754727185886,
+                "pitch": -2.1038707232422666,
+                "label": "Werkstatt"
             }
         ],
         "map": {
@@ -347,6 +581,12 @@
         "name": "Panorama_Gleis2_001",
         "image": "Panorama_Gleis2_001.jpg",
         "links": [
+            {
+                "to": "Panorama_Gleis1_Dachstand_001",
+                "yaw": -106.03961103377095,
+                "pitch": 22.284924436844225,
+                "label": "Dacharbeitsstand"
+            },
             {
                 "to": "Panorama_Gleis1_001",
                 "yaw": -61.21250641896716,
@@ -413,41 +653,6 @@
         },
         "floor": "EG"
     },
-    "Panorama_Gleis3_001": {
-        "name": "Panorama_Gleis3_001",
-        "image": "Panorama_Gleis3_001.jpg",
-        "links": [
-            {
-                "to": "Panorama_Gleis2_001",
-                "yaw": -56.44760286705036,
-                "pitch": 0.0,
-                "label": "Gleis 2 Einfahrt"
-            },
-            {
-                "to": "Panorama_Gleis4_001",
-                "yaw": 123.40899264045696,
-                "pitch": 0.0,
-                "label": "Gleis 4 Einfahrt"
-            },
-            {
-                "to": "Panorama_Außenanlagen_003",
-                "yaw": -154.67734252851696,
-                "pitch": 3.243795036173392,
-                "label": "vorderer Hof"
-            },
-            {
-                "to": "Panorama_Gleis3_002",
-                "yaw": 31.449895241523468,
-                "pitch": 0.0,
-                "label": "Gleis 3 Mittelgang"
-            }
-        ],
-        "map": {
-            "x": 0.28501829504966736,
-            "y": 0.6826314926147461
-        },
-        "floor": "EG"
-    },
     "Panorama_Gleis3_002": {
         "name": "Panorama_Gleis3_002",
         "image": "Panorama_Gleis3_002.jpg",
@@ -480,35 +685,6 @@
         "map": {
             "x": 0.4902850389480591,
             "y": 0.515466570854187
-        },
-        "floor": "EG"
-    },
-    "Panorama_Gleis3_003": {
-        "name": "Panorama_Gleis3_003",
-        "image": "Panorama_Gleis3_003.jpg",
-        "links": [
-            {
-                "to": "Panorama_Gleis3_004",
-                "yaw": 31.190005062732155,
-                "pitch": 0.0,
-                "label": "Gleis 3"
-            },
-            {
-                "to": "Panorama_Gleis1a_001",
-                "yaw": -62.67612973479267,
-                "pitch": 0.0,
-                "label": "Gleis 1a"
-            },
-            {
-                "to": "Panorama_Gleis3_002",
-                "yaw": -149.13759143898815,
-                "pitch": 0.0,
-                "label": "Gleis 3 Mittelgang"
-            }
-        ],
-        "map": {
-            "x": 0.5638436675071716,
-            "y": 0.4569334089756012
         },
         "floor": "EG"
     },
@@ -547,70 +723,6 @@
         },
         "floor": "EG"
     },
-    "Panorama_Gleis4_001": {
-        "name": "Panorama_Gleis4_001",
-        "image": "Panorama_Gleis4_001.jpg",
-        "links": [
-            {
-                "to": "Panorama_Gleis3_001",
-                "yaw": -56.59100735954305,
-                "pitch": 0.0,
-                "label": "Gleis 3 Einfahrt"
-            },
-            {
-                "to": "Panorama_Gleis5_001",
-                "yaw": 122.3403369258081,
-                "pitch": 0.0,
-                "label": "Gleis 5 Einfahrt"
-            },
-            {
-                "to": "Panorama_Außenanlagen_003",
-                "yaw": -143.2837629896628,
-                "pitch": 3.2708558861355987,
-                "label": "vorderer Hof"
-            },
-            {
-                "to": "Panorama_Gleis4_002",
-                "yaw": 31.449895241523468,
-                "pitch": 0.0,
-                "label": "Gleis 4 Mittelgang"
-            }
-        ],
-        "map": {
-            "x": 0.26486894488334656,
-            "y": 0.6419554948806763
-        },
-        "floor": "EG"
-    },
-    "Panorama_Gleis4_002": {
-        "name": "Panorama_Gleis4_002",
-        "image": "Panorama_Gleis4_002.jpg",
-        "links": [
-            {
-                "to": "Panorama_Gleis4_001",
-                "yaw": -148.55010475847655,
-                "pitch": 0.0,
-                "label": "Gleis 4 Einfahrt"
-            },
-            {
-                "to": "Panorama_Gleis5_002",
-                "yaw": 122.3403369258081,
-                "pitch": 0.0,
-                "label": "Gleis 5 Mittelgang"
-            },
-            {
-                "to": "Panorama_Gleis3_002",
-                "yaw": -56.59100735954305,
-                "pitch": 0.0,
-                "label": "Gleis 3 Mittelgang"
-            }
-        ],
-        "map": {
-            "x": 0.4701356887817383,
-            "y": 0.47479063272476196
-        },
-        "floor": "EG"
-    },
     "Panorama_Gleis5_001": {
         "name": "Panorama_Gleis5_001",
         "image": "Panorama_Gleis5_001.jpg",
@@ -643,41 +755,6 @@
         "map": {
             "x": 0.24524559080600739,
             "y": 0.6006868481636047
-        },
-        "floor": "EG"
-    },
-    "Panorama_Gleis5_002": {
-        "name": "Panorama_Gleis5_002",
-        "image": "Panorama_Gleis5_002.jpg",
-        "links": [
-            {
-                "to": "Panorama_Gleis5_001",
-                "yaw": -148.55010475847655,
-                "pitch": 0.0,
-                "label": "Gleis 5 Einfahrt"
-            },
-            {
-                "to": "Panorama_Gleis5_003",
-                "yaw": 30.810005537848113,
-                "pitch": 0.0,
-                "label": "Gleis 5"
-            },
-            {
-                "to": "Panorama_Gleis6_002",
-                "yaw": 121.45363670399672,
-                "pitch": 0.0,
-                "label": "Gleis 6 Mittelgang"
-            },
-            {
-                "to": "Panorama_Gleis4_002",
-                "yaw": -57.65966307419191,
-                "pitch": 0.0,
-                "label": "Gleis 4 Mittelgang"
-            }
-        ],
-        "map": {
-            "x": 0.4505123198032379,
-            "y": 0.43352195620536804
         },
         "floor": "EG"
     },
@@ -756,6 +833,12 @@
         "image": "Panorama_Gleis6_001.jpg",
         "links": [
             {
+                "to": "Panorama_Gleis6_Dachstand_001",
+                "yaw": -176.54128083853902,
+                "pitch": 27.719693879711688,
+                "label": "Dacharbeitsstand"
+            },
+            {
                 "to": "Panorama_Gleis5_001",
                 "yaw": -58.54636329600328,
                 "pitch": 0.0,
@@ -801,40 +884,17 @@
                 "yaw": -58.54636329600328,
                 "pitch": 0.0,
                 "label": "Gleis 5 Mittelgang"
+            },
+            {
+                "to": "Panorama_UG_001",
+                "yaw": -10.941183352160174,
+                "pitch": -73.76870325499388,
+                "label": "Untergeschoss"
             }
         ],
         "map": {
             "x": 0.43145543336868286,
             "y": 0.39203783869743347
-        },
-        "floor": "EG"
-    },
-    "Panorama_Gleis6_003": {
-        "name": "Panorama_Gleis6_003",
-        "image": "Panorama_Gleis6_003.jpg",
-        "links": [
-            {
-                "to": "Panorama_Gleis6_002",
-                "yaw": -149.37859353126058,
-                "pitch": 0.0,
-                "label": "Gleis 6 Mittelgang"
-            },
-            {
-                "to": "Panorama_Gleis6_004",
-                "yaw": 31.190007984190657,
-                "pitch": 0.0,
-                "label": "Gleis 6 Waschanlage"
-            },
-            {
-                "to": "Panorama_Gleis5_003",
-                "yaw": -69.40589311729137,
-                "pitch": 0.0,
-                "label": "Gleis 5"
-            }
-        ],
-        "map": {
-            "x": 0.5108701586723328,
-            "y": 0.3294469118118286
         },
         "floor": "EG"
     },
@@ -878,6 +938,12 @@
         "image": "Panorama_Werkstatt_001.jpg",
         "links": [
             {
+                "to": "Panorama_Werkstatt_002",
+                "yaw": 29.16200374723378,
+                "pitch": -0.6458702881532234,
+                "label": "Werkstatt"
+            },
+            {
                 "to": "Panorama_Gleis1_001",
                 "yaw": -163.19659216318576,
                 "pitch": 0.0,
@@ -888,11 +954,339 @@
                 "yaw": 48.31526371064194,
                 "pitch": 0.0,
                 "label": "Gleis 1 Mittelgang"
+            },
+            {
+                "to": "Panorama_Werkstatt_004",
+                "yaw": -148.037929799049,
+                "pitch": -1.3741630236020483,
+                "label": "Werkstatt"
             }
         ],
         "map": {
             "x": 0.44613373279571533,
             "y": 0.7040954828262329
+        },
+        "floor": "EG"
+    },
+    "Panorama_Büro_001": {
+        "name": "Panorama_Büro_001",
+        "image": "Panorama_Büro_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_Büro_002",
+                "yaw": 29.394994557940127,
+                "pitch": 0.0,
+                "label": "Büro"
+            },
+            {
+                "to": "Panorama_Werkstatt_004",
+                "yaw": 28.21784771296731,
+                "pitch": -76.85288496793649,
+                "label": "Werkstatt"
+            }
+        ],
+        "map": {
+            "x": 0.35619696974754333,
+            "y": 0.7783204317092896
+        },
+        "floor": "OG"
+    },
+    "Panorama_Büro_002": {
+        "name": "Panorama_Büro_002",
+        "image": "Panorama_Büro_002.jpg",
+        "links": [
+            {
+                "to": "Panorama_Büro_003",
+                "yaw": 31.732020558383333,
+                "pitch": 0.0,
+                "label": "Büro"
+            },
+            {
+                "to": "Panorama_Büro_001",
+                "yaw": -150.60500544205988,
+                "pitch": 0.0,
+                "label": "Büro"
+            },
+            {
+                "to": "Panorama_Dach_001",
+                "yaw": 45.89407338448804,
+                "pitch": 25.723468494084035,
+                "label": "Dachaufstieg"
+            }
+        ],
+        "map": {
+            "x": 0.5075461268424988,
+            "y": 0.664787232875824
+        },
+        "floor": "OG"
+    },
+    "Panorama_Büro_003": {
+        "name": "Panorama_Büro_003",
+        "image": "Panorama_Büro_003.jpg",
+        "links": [
+            {
+                "to": "Panorama_Büro_004",
+                "yaw": 34.33268176515721,
+                "pitch": 0.0,
+                "label": "Büro"
+            },
+            {
+                "to": "Panorama_Büro_002",
+                "yaw": -148.26797944161666,
+                "pitch": 0.0,
+                "label": "Büro"
+            }
+        ],
+        "map": {
+            "x": 0.6005843877792358,
+            "y": 0.5881780982017517
+        },
+        "floor": "OG"
+    },
+    "Panorama_Büro_004": {
+        "name": "Panorama_Büro_004",
+        "image": "Panorama_Büro_004.jpg",
+        "links": [
+            {
+                "to": "Panorama_Büro_003",
+                "yaw": -145.6673182348428,
+                "pitch": 0.0,
+                "label": "Büro"
+            }
+        ],
+        "map": {
+            "x": 0.7011382579803467,
+            "y": 0.49673035740852356
+        },
+        "floor": "OG"
+    },
+    "Panorama_Gleis1_Dachstand_001": {
+        "name": "Panorama_Gleis1_Dachstand_001",
+        "image": "Panorama_Gleis1_Dachstand_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis2_001",
+                "yaw": 73.96038896622905,
+                "pitch": -22.284924436844225,
+                "label": "Gleis 2 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis1_001",
+                "yaw": 3.4587079369734637,
+                "pitch": -27.719617701895476,
+                "label": "Gleis 1 Einfahrt"
+            }
+        ],
+        "map": {
+            "x": 0.2955314517021179,
+            "y": 0.7573378682136536
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis4_Dachstand_001": {
+        "name": "Panorama_Gleis4_Dachstand_001",
+        "image": "Panorama_Gleis4_Dachstand_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis5_002",
+                "yaw": 84.39614838654354,
+                "pitch": -20.45041835614225,
+                "label": "Gleis 5 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis4_002",
+                "yaw": 2.4257596806227735,
+                "pitch": -27.728553226157867,
+                "label": "Gleis 4 Mittelgang"
+            }
+        ],
+        "map": {
+            "x": 0.4473767578601837,
+            "y": 0.4760744273662567
+        },
+        "floor": "EG"
+    },
+    "Panorama_Gleis6_Dachstand_001": {
+        "name": "Panorama_Gleis6_Dachstand_001",
+        "image": "Panorama_Gleis6_Dachstand_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_Gleis6_001",
+                "yaw": 3.4587191614609885,
+                "pitch": -27.719693879711688,
+                "label": "Gleis 6 Einfahrt"
+            }
+        ],
+        "map": {
+            "x": 0.2034423053264618,
+            "y": 0.561033308506012
+        },
+        "floor": "EG"
+    },
+    "Panorama_UG_001": {
+        "name": "Panorama_UG_001",
+        "image": "Panorama_UG_001.jpg",
+        "links": [
+            {
+                "to": "Panorama_UG_002",
+                "yaw": 21.549269519923545,
+                "pitch": 0.0,
+                "label": "Untergeschoss"
+            },
+            {
+                "to": "Panorama_UG_003",
+                "yaw": -60.629118361798625,
+                "pitch": 0.0,
+                "label": "Untergeschoss"
+            },
+            {
+                "to": "Panorama_Gleis6_002",
+                "yaw": 169.05881664783982,
+                "pitch": 73.76870325499388,
+                "label": "Gleis 6 Mittelgang"
+            }
+        ],
+        "map": {
+            "x": 0.4373757243156433,
+            "y": 0.39356178045272827
+        },
+        "floor": "UG"
+    },
+    "Panorama_UG_002": {
+        "name": "Panorama_UG_002",
+        "image": "Panorama_UG_002.jpg",
+        "links": [
+            {
+                "to": "Panorama_UG_001",
+                "yaw": -158.45073048007646,
+                "pitch": 0.0,
+                "label": "Untergeschoss"
+            }
+        ],
+        "map": {
+            "x": 0.47806379199028015,
+            "y": 0.3721664845943451
+        },
+        "floor": "UG"
+    },
+    "Panorama_UG_003": {
+        "name": "Panorama_UG_003",
+        "image": "Panorama_UG_003.jpg",
+        "links": [
+            {
+                "to": "Panorama_UG_001",
+                "yaw": 119.37088163820138,
+                "pitch": 0.0,
+                "label": "Untergeschoss"
+            },
+            {
+                "to": "Panorama_Gleis1_002",
+                "yaw": -51.97500682660105,
+                "pitch": 42.94709633944454,
+                "label": "Gleis 1 Mittelgang"
+            },
+            {
+                "to": "Panorama_UG_004",
+                "yaw": 54.64681919409034,
+                "pitch": 0.0,
+                "label": "Untergeschoss"
+            }
+        ],
+        "map": {
+            "x": 0.509836733341217,
+            "y": 0.5650004744529724
+        },
+        "floor": "UG"
+    },
+    "Panorama_UG_004": {
+        "name": "Panorama_UG_004",
+        "image": "Panorama_UG_004.jpg",
+        "links": [
+            {
+                "to": "Panorama_UG_003",
+                "yaw": -125.35318080590967,
+                "pitch": 0.0,
+                "label": "Untergeschoss"
+            }
+        ],
+        "map": {
+            "x": 0.5799963474273682,
+            "y": 0.4333157241344452
+        },
+        "floor": "UG"
+    },
+    "Panorama_Werkstatt_002": {
+        "name": "Panorama_Werkstatt_002",
+        "image": "Panorama_Werkstatt_002.jpg",
+        "links": [
+            {
+                "to": "Panorama_Werkstatt_003",
+                "yaw": 44.78273906145854,
+                "pitch": 0.0,
+                "label": "Werkstatt"
+            },
+            {
+                "to": "Panorama_Werkstatt_001",
+                "yaw": -150.83799625276623,
+                "pitch": 0.6458702881532234,
+                "label": "Werkstatt"
+            },
+            {
+                "to": "Panorama_Gleis1a_001",
+                "yaw": 141.7362703107299,
+                "pitch": 2.2952334606966924,
+                "label": "Gleis 1a"
+            }
+        ],
+        "map": {
+            "x": 0.6337651610374451,
+            "y": 0.5646807551383972
+        },
+        "floor": "EG"
+    },
+    "Panorama_Werkstatt_003": {
+        "name": "Panorama_Werkstatt_003",
+        "image": "Panorama_Werkstatt_003.jpg",
+        "links": [
+            {
+                "to": "Panorama_Werkstatt_002",
+                "yaw": -135.21726093854147,
+                "pitch": 0.0,
+                "label": "Werkstatt"
+            },
+            {
+                "to": "Panorama_Gleis1a_002",
+                "yaw": 67.29245272814114,
+                "pitch": 2.1038707232422666,
+                "label": "Gleis 1a"
+            }
+        ],
+        "map": {
+            "x": 0.6873345971107483,
+            "y": 0.4938889145851135
+        },
+        "floor": "EG"
+    },
+    "Panorama_Werkstatt_004": {
+        "name": "Panorama_Werkstatt_004",
+        "image": "Panorama_Werkstatt_004.jpg",
+        "links": [
+            {
+                "to": "Panorama_Büro_001",
+                "yaw": -151.78215228703272,
+                "pitch": 76.85288496793649,
+                "label": "Büro"
+            },
+            {
+                "to": "Panorama_Werkstatt_001",
+                "yaw": 31.962070200951,
+                "pitch": 1.3741630236020483,
+                "label": "Werkstatt"
+            }
+        ],
+        "map": {
+            "x": 0.3604671061038971,
+            "y": 0.7752693891525269
         },
         "floor": "EG"
     }

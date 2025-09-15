@@ -84,7 +84,7 @@ let NODES: Record<string, Node> = {}
 // Function to load and process node data from JSON
 async function loadNodesFromJSON(): Promise<Record<string, Node>> {
   try {
-    const response = await fetch('./src/json/Panoramane_Standorte.json')
+    const response = await fetch('./json/Panoramane_Standorte.json')
     if (!response.ok) {
       throw new Error(`Failed to load JSON: ${response.status} ${response.statusText}`)
     }

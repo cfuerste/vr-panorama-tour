@@ -23,13 +23,28 @@ import { Image } from '@babylonjs/gui/2D/controls/image'
 import { TextBlock } from '@babylonjs/gui/2D/controls/textBlock'
 
 const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement
+
+// Add debugging
+console.log('🎬 VR Tour Starting...')
+console.log('Canvas found:', !!canvas)
+
+if (!canvas) {
+  console.error('❌ Canvas element not found!')
+  document.body.innerHTML = '<div style="color: white; font-size: 24px; text-align: center; padding: 50px;">❌ Canvas element not found! Check console for details.</div>'
+  throw new Error('Canvas element not found')
+}
+
 const engine = new Engine(canvas, true, {
   preserveDrawingBuffer: true,
   stencil: true,
   disableWebGL2Support: false
 })
 
+console.log('🚀 Babylon.js Engine initialized')
+
 const scene = new Scene(engine)
+
+console.log('🎭 Scene created')
 
 // Configure scene for better shader loading
 scene.preventDefaultOnPointerDown = false

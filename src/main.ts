@@ -84,7 +84,7 @@ let NODES: Record<string, Node> = {}
 // Function to load and process node data from JSON
 async function loadNodesFromJSON(): Promise<Record<string, Node>> {
   try {
-    const response = await fetch('/src/json/Panoramane_Standorte.json')
+    const response = await fetch('./src/json/Panoramane_Standorte.json')
     if (!response.ok) {
       throw new Error(`Failed to load JSON: ${response.status} ${response.statusText}`)
     }
@@ -96,7 +96,7 @@ async function loadNodesFromJSON(): Promise<Record<string, Node>> {
     Object.entries(rawData).forEach(([nodeId, rawNode]: [string, any]) => {
       processedNodes[nodeId] = {
         name: rawNode.name,
-        image: `/panos/${rawNode.image}`, // Add /panos/ prefix
+        image: `./panos/${rawNode.image}`, // Add ./panos/ prefix for relative paths
         links: rawNode.links, // Links are already in the correct format
         map: {
           x: rawNode.map.x * 100, // Convert from 0-1 to 0-100 percentage
@@ -120,7 +120,7 @@ const HOTSPOT_SIZE = 1
 const MAP_TEX_SIZE = 512
 
 // Fallback-Bild (existiert laut Ordner-Inhalt) – wird genutzt falls ein Panorama fehlt
-const FALLBACK_IMAGE = '/panos/pano_a.jpg'
+const FALLBACK_IMAGE = './panos/pano_a.jpg'
 
 // Start auf ein vorhandenes Bild ändern (vorher Panorama_Werkstatt_001 -> Datei fehlt)
 let currentId = 'Panorama_Außenanlagen_001'
@@ -200,10 +200,10 @@ function addCompassOverlayToDome(dome: PhotoDome, nodeId: string) {
 
 // Floor plan definitions
 const FLOORS = [
-  { id: 'UG', name: 'UG', image: '/ui/floorplan_UG.png' },
-  { id: 'EG', name: 'EG', image: '/ui/floorplan_EG.png' },
-  { id: 'OG', name: 'OG', image: '/ui/floorplan_OG.png' },
-  { id: 'DA', name: 'DA', image: '/ui/floorplan_DA.png' }
+  { id: 'UG', name: 'UG', image: './ui/floorplan_UG.png' },
+  { id: 'EG', name: 'EG', image: './ui/floorplan_EG.png' },
+  { id: 'OG', name: 'OG', image: './ui/floorplan_OG.png' },
+  { id: 'DA', name: 'DA', image: './ui/floorplan_DA.png' }
 ]
 
 let currentFloor = 'EG' // Default floor
@@ -640,7 +640,7 @@ function buildControllerMap() {
   
   // Use current floor image
   const currentFloorData = FLOORS.find(f => f.id === currentFloor)
-  const floorImagePath = currentFloorData ? currentFloorData.image : '/ui/floorplan_EG.png'
+  const floorImagePath = currentFloorData ? currentFloorData.image : './ui/floorplan_EG.png'
   const img = new Image('floor', floorImagePath); img.stretch = Image.STRETCH_UNIFORM
   // Ensure the floor image stays in the background
   img.zIndex = -1
@@ -678,7 +678,7 @@ function buildOverlay() {
 }
 
 function addLogoToOverlay(adt: AdvancedDynamicTexture) {
-  const logo = new Image('logo', '/ipro-logo.svg')
+  const logo = new Image('logo', './ipro-logo.svg')
   logo.width = '180px'
   logo.height = '50px'
   logo.horizontalAlignment = 1 // Right

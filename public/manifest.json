@@ -1,0 +1,19 @@
+{
+  "name": "VR Panorama Tour",
+  "short_name": "VR Tour",
+  "description": "Interactive VR panorama tour with WebXR support",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "/ipro-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["entertainment", "utilities"],
+  "lang": "de-DE"
+}

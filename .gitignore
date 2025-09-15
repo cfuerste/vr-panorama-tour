@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Archive files (prevent large file uploads)
+*.zip
+*.tar.gz
+*.rar

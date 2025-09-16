@@ -560,6 +560,7 @@ function sphericalToCartesian(yawDeg: number, pitchDeg: number, r = SPHERE_RADIU
   // Your data seems to use yaw like compass degrees (0 = forward). Adjust if needed.
   let yaw = deg(yawDeg)
   if (DEBUG_INVERT_YAW) yaw = -yaw
+  yaw = yaw + Math.PI
   const pitch = deg(pitchDeg)
   const x = r * Math.sin(yaw) * Math.cos(pitch)
   const y = r * Math.sin(pitch)

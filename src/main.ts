@@ -633,10 +633,15 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
   const node = NODES[nodeId]
   if (!node) return
   
+  console.log(`🎯 Creating ${node.links.length} hotspots for node ${nodeId}`)
   hotspotMeshes[nodeId] = []
   
-  node.links.forEach(link => {
+  node.links.forEach((link, index) => {
+    console.log(`🔗 Creating hotspot ${index + 1}: ${nodeId} → ${link.to} at yaw:${link.yaw}, pitch:${link.pitch}`)
+    
     const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS - 0.05)
+    console.log(`📍 Calculated position:`, pos)
+    
     const plane = MeshBuilder.CreatePlane(`hs_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE * 1.5 }, scene)
     plane.position = pos
     plane.billboardMode = Mesh.BILLBOARDMODE_ALL
@@ -644,10 +649,17 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
     plane.renderingGroupId = 2
     plane.setEnabled(false) // Hide initially
     
+    console.log(`✨ Created hotspot plane: ${plane.name}, pickable: ${plane.isPickable}`)
+    
     // Add GUI to hotspot with better visibility
     const adt = AdvancedDynamicTexture.CreateForMesh(plane, 512, 512)
+    adt.name = `adt_${nodeId}_${link.to}`
+    console.log(`🖥️ Created GUI texture: ${adt.name}`)
+    
     const rect = new Rectangle()
     rect.thickness = 0
+    rect.name = `rect_${nodeId}_${link.to}`
+    rect.isPointerBlocker = true // Ensure it can receive pointer events
     adt.addControl(rect)
     
     const circle = new Ellipse()
@@ -666,16 +678,19 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
       text.fontSize = '24px'
       text.fontWeight = 'bold'
       rect.addControl(text)
+      console.log(`📝 Added label: ${link.label}`)
     }
     
-    // Enhanced interaction
+    // Enhanced interaction with debug logging
     rect.onPointerEnterObservable.add(() => {
+      console.log(`🎯 Hotspot hover: ${nodeId} → ${link.to}`)
       circle.background = 'rgba(255, 255, 255, 1.0)'
       circle.scaleX = 1.2
       circle.scaleY = 1.2
     })
     
     rect.onPointerOutObservable.add(() => {
+      console.log(`🎯 Hotspot unhover: ${nodeId} → ${link.to}`)
       circle.background = 'rgba(255, 255, 255, 0.8)'
       circle.scaleX = 1.0
       circle.scaleY = 1.0
@@ -683,6 +698,8 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
     
     rect.onPointerUpObservable.add(() => {
       console.log(`🔗 Hotspot clicked: ${nodeId} → ${link.to}`)
+      console.log(`🎯 Target node exists:`, !!NODES[link.to])
+      console.log(`🎭 Switching to node...`)
       switchToNode(link.to)
     })
     
@@ -693,7 +710,10 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
     }
     
     hotspotMeshes[nodeId].push(plane)
+    console.log(`✅ Hotspot ${index + 1} created and added to array`)
   })
+  
+  console.log(`🎯 Total hotspots created for ${nodeId}: ${hotspotMeshes[nodeId].length}`)
 }
 
 // Create fallback dome for failed loads
@@ -808,10 +828,17 @@ async function switchToNode(nodeId: string) {
     
     // Hide old hotspots and show new ones
     if (hotspotMeshes[oldNodeId]) {
+      console.log(`🔒 Hiding ${hotspotMeshes[oldNodeId].length} hotspots from ${oldNodeId}`)
       hotspotMeshes[oldNodeId].forEach(mesh => mesh.setEnabled(false))
     }
     if (hotspotMeshes[currentId]) {
-      hotspotMeshes[currentId].forEach(mesh => mesh.setEnabled(true))
+      console.log(`🔓 Showing ${hotspotMeshes[currentId].length} hotspots for ${currentId}`)
+      hotspotMeshes[currentId].forEach((mesh, index) => {
+        mesh.setEnabled(true)
+        console.log(`  ✅ Enabled hotspot ${index + 1}: ${mesh.name}`)
+      })
+    } else {
+      console.warn(`❌ No hotspots found for current node ${currentId}`)
     }
     
     // Perform crossfade with zoom effect using mobile version
@@ -1538,8 +1565,13 @@ function showInitialNode(nodeId: string) {
   }
   
   if (hotspotMeshes[currentId]) {
-    hotspotMeshes[currentId].forEach(mesh => mesh.setEnabled(true))
-    console.log(`🎯 Enabled ${hotspotMeshes[currentId].length} hotspots for ${currentId}`)
+    console.log(`🎯 Enabling ${hotspotMeshes[currentId].length} hotspots for initial node ${currentId}`)
+    hotspotMeshes[currentId].forEach((mesh, index) => {
+      mesh.setEnabled(true)
+      console.log(`  ✅ Enabled initial hotspot ${index + 1}: ${mesh.name}, pickable: ${mesh.isPickable}`)
+    })
+  } else {
+    console.warn(`❌ No hotspots found for initial node ${currentId}`)
   }
   
   console.log(`🎊 Showing initial node: ${currentId}`)

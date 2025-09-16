@@ -8,6 +8,7 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh'
 import { PhotoDome } from '@babylonjs/core/Helpers/photoDome'
 import { WebXRDefaultExperience } from '@babylonjs/core/XR/webXRDefaultExperience'
 import '@babylonjs/core/XR/features/WebXRHandTracking' // Hand-Tracking-Feature laden
+import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents'
 // Import BackgroundMaterial and its dependencies
 import { Effect } from '@babylonjs/core/Materials/effect'
 import { ShaderStore } from '@babylonjs/core/Engines/shaderStore'
@@ -643,11 +644,11 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
     const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS - 0.05)
     console.log(`📍 Calculated position:`, pos)
     
-    const plane = MeshBuilder.CreatePlane(`hs_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE * 1.5 }, scene)
+    const plane = MeshBuilder.CreatePlane(`hotspot_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE * 1.5 }, scene)
     plane.position = pos
     plane.billboardMode = Mesh.BILLBOARDMODE_ALL
     plane.isPickable = true
-    plane.renderingGroupId = 2
+    plane.renderingGroupId = 3 // Use higher rendering group to ensure visibility
     plane.setEnabled(false) // Hide initially
     
     console.log(`✨ Created hotspot plane: ${plane.name}, pickable: ${plane.isPickable}`)
@@ -657,8 +658,18 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
     adt.name = `adt_${nodeId}_${link.to}`
     console.log(`🖥️ Created GUI texture: ${adt.name}`)
     
+    // Ensure the material is properly configured for visibility
+    if (plane.material) {
+      const mat: any = plane.material
+      mat.disableDepthWrite = true
+      mat.backFaceCulling = false
+      mat.transparencyMode = 2 // Alpha blend mode
+    }
+    
     const rect = new Rectangle()
-    rect.thickness = 0
+    rect.thickness = 2
+    rect.color = "rgba(255, 0, 0, 0.8)" // Red border for debugging
+    rect.background = "rgba(255, 255, 255, 0.1)" // Slight white background for visibility
     rect.name = `rect_${nodeId}_${link.to}`
     rect.isPointerBlocker = true // Ensure it can receive pointer events
     adt.addControl(rect)
@@ -703,13 +714,7 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
       console.log(`🎭 Switching to node...`)
       switchToNode(link.to)
     })
-    
-    const mat: any = plane.material
-    if (mat) {
-      mat.disableDepthWrite = true
-      mat.backFaceCulling = false
-    }
-    
+
     hotspotMeshes[nodeId].push(plane)
     console.log(`✅ Hotspot ${index + 1} created and added to array`)
   })
@@ -1025,11 +1030,16 @@ function rotateCameraToTarget(yaw: number, pitch: number): Promise<void> {
 }
 
 function buildMap() {
-  if (leftController) {
+  // Check if we're in VR mode or have a controller available
+  const isInVR = xrExperience?.baseExperience?.state === 'IN_XR'
+  
+  if (leftController || isInVR) {
     // Build 3D map for VR controller
+    console.log('🗺️ Building 3D map for VR mode')
     buildControllerMap()
   } else {
-    // Build 2D overlay map for desktop/no controller
+    // Build 2D overlay map for desktop/no VR
+    console.log('🗺️ Building 2D overlay map for desktop mode')
     buildOverlayMap()
   }
   
@@ -1342,6 +1352,8 @@ if (LAYOUT_MODE) {
 }
 
 function updateMapPosition() {
+  const isInVR = xrExperience?.baseExperience?.state === 'IN_XR'
+  
   if (leftController && leftController.grip && mapPlane) {
     console.log('Attaching map to left controller')
     
@@ -1361,8 +1373,24 @@ function updateMapPosition() {
     // Reduce renderingGroupId to ensure it renders on top
     mapPlane.renderingGroupId = 3
     mapPlane.setEnabled(true)
+  } else if (isInVR && mapPlane) {
+    console.log('Positioning 3D map in front of user (no controller)')
+    
+    // Hide overlay map if it exists
+    if (overlayMapContainer) {
+      overlayMapContainer.isVisible = false
+    }
+    
+    // Position 3D map in front of user
+    mapPlane.parent = null
+    mapPlane.position = new Vector3(-0.5, 0, 1) // To the left and in front
+    mapPlane.rotation = new Vector3(0, Math.PI / 6, 0) // Slight angle towards user
+    mapPlane.billboardMode = Mesh.BILLBOARDMODE_NONE
+    
+    mapPlane.renderingGroupId = 3
+    mapPlane.setEnabled(true)
   } else {
-    console.log('Using overlay map (no controller available)')
+    console.log('Using overlay map (no VR or controller available)')
     
     // Hide 3D map if it exists
     if (mapPlane) {
@@ -1433,8 +1461,11 @@ async function enableXR() {
           }, 100)
         }
         
-        // Force update map position
-        setTimeout(() => updateMapPosition(), 500)
+        // Force rebuild map for VR mode with controllers
+        setTimeout(() => {
+          console.log('🗺️ Rebuilding map for VR mode')
+          updateMapSelection() // This will rebuild the appropriate map type
+        }, 1000) // Longer delay to ensure controllers are fully initialized
         
         // Apply Quest 3 specific optimizations
         applyQuest3Optimizations()
@@ -1455,8 +1486,11 @@ async function enableXR() {
       // Clean up any stuck states
       isTransitioning = false
       
-      // Reset map position for non-VR mode
-      updateMapPosition()
+      // Reset map for non-VR mode
+      setTimeout(() => {
+        console.log('🗺️ Rebuilding map for desktop mode')
+        updateMapSelection() // This will rebuild as overlay map
+      }, 100)
     })
   }
   
@@ -1470,16 +1504,18 @@ async function enableXR() {
       
       if (controller.inputSource.handedness === 'left') {
         leftController = controller
-        console.log('Left controller detected, will attach map')
-        updateMapPosition()
+        console.log('Left controller detected, will rebuild map for VR')
+        // Rebuild map as 3D controller map instead of just repositioning
+        updateMapSelection() // This will dispose old map and create new 3D map
       }
     })
     
     xrExperience.input.onControllerRemovedObservable.add((controller: any) => {
       if (controller.inputSource.handedness === 'left') {
         leftController = null
-        console.log('Left controller removed, map will fallback to viewport')
-        updateMapPosition()
+        console.log('Left controller removed, will rebuild map for overlay')
+        // Rebuild map as overlay map instead of just repositioning
+        updateMapSelection() // This will dispose old map and create new overlay map
       }
     })
   }
@@ -1660,6 +1696,26 @@ if (LAYOUT_MODE) {
     }, 500)
   })
 }
+
+// Add VR-compatible input handling for hotspots
+scene.onPointerObservable.add((pointerInfo) => {
+  if (pointerInfo.type === PointerEventTypes.POINTERUP && pointerInfo.pickInfo?.hit) {
+    const pickedMesh = pointerInfo.pickInfo.pickedMesh
+    if (pickedMesh && pickedMesh.name.startsWith('hotspot_')) {
+      // Extract target node from hotspot name (format: hotspot_nodeId_targetId)
+      const parts = pickedMesh.name.split('_')
+      if (parts.length >= 3) {
+        const targetNodeId = parts.slice(2).join('_') // Handle node IDs with underscores
+        console.log(`🎯 VR/Mouse hotspot clicked: ${pickedMesh.name} → ${targetNodeId}`)
+        if (NODES[targetNodeId]) {
+          switchToNode(targetNodeId)
+        } else {
+          console.warn(`❌ Target node not found: ${targetNodeId}`)
+        }
+      }
+    }
+  }
+})
 
 enableXR().catch(console.error)
 

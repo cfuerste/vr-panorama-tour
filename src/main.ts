@@ -37,7 +37,11 @@ if (!canvas) {
 const engine = new Engine(canvas, true, {
   preserveDrawingBuffer: true,
   stencil: true,
-  disableWebGL2Support: false
+  disableWebGL2Support: false,
+  powerPreference: "high-performance", // Use discrete GPU if available
+  antialias: false, // Disable for Quest 3 performance
+  adaptToDeviceRatio: false, // Control scaling manually
+  doNotHandleContextLost: true
 })
 
 console.log('🚀 Babylon.js Engine initialized')
@@ -45,6 +49,14 @@ console.log('🚀 Babylon.js Engine initialized')
 const scene = new Scene(engine)
 
 console.log('🎭 Scene created')
+
+// Optimize scene for Quest 3 performance
+scene.skipPointerMovePicking = true
+scene.autoClear = false // Manual clearing for performance
+scene.autoClearDepthAndStencil = false
+
+// Set target framerate for Quest 3
+engine.setHardwareScalingLevel(1.0) // Full resolution
 
 // Configure scene for better shader loading
 scene.preventDefaultOnPointerDown = false
@@ -143,6 +155,235 @@ let leftController: any = null
 
 // Transition settings
 const TRANSITION_DURATION = 1000 // milliseconds
+
+// Memory management settings
+const MAX_LOADED_TEXTURES = 8 // Limit concurrent loaded textures
+const PRELOAD_RADIUS = 2 // Only preload immediate neighbors
+const MAX_MEMORY_MB = 200 // Conservative memory limit for Quest 3
+
+// Texture Memory Manager Class
+class TextureMemoryManager {
+  private loadedTextures = new Map<string, PhotoDome>()
+  private currentMemoryUsage = 0
+  private loadingPromises = new Map<string, Promise<PhotoDome>>()
+  
+  async loadTexture(nodeId: string, highQuality = false): Promise<PhotoDome> {
+    // Return existing texture if already loaded
+    if (this.loadedTextures.has(nodeId)) {
+      return this.loadedTextures.get(nodeId)!
+    }
+    
+    // Return existing loading promise if already in progress
+    if (this.loadingPromises.has(nodeId)) {
+      return this.loadingPromises.get(nodeId)!
+    }
+    
+    // Check memory before loading
+    if (this.loadedTextures.size >= MAX_LOADED_TEXTURES) {
+      await this.freeOldestTextures(2)
+    }
+    
+    const loadingPromise = this.createTexture(nodeId, highQuality)
+    this.loadingPromises.set(nodeId, loadingPromise)
+    
+    try {
+      const texture = await loadingPromise
+      this.loadedTextures.set(nodeId, texture)
+      this.currentMemoryUsage += this.estimateTextureSize()
+      console.log(`📸 Loaded texture ${nodeId}, memory usage: ${this.currentMemoryUsage}MB`)
+      return texture
+    } finally {
+      this.loadingPromises.delete(nodeId)
+    }
+  }
+  
+  private async createTexture(nodeId: string, highQuality: boolean): Promise<PhotoDome> {
+    const node = NODES[nodeId]
+    if (!node) {
+      throw new Error(`Node ${nodeId} not found`)
+    }
+    
+    return new Promise((resolve, reject) => {
+      try {
+        const dome = new PhotoDome(nodeId, node.image, {
+          resolution: highQuality ? 128 : 64, // Lower resolution for background loading
+          size: SPHERE_RADIUS,
+          useDirectMapping: false // Better performance on mobile
+        }, scene)
+        
+        dome.setEnabled(false) // Start disabled
+        
+        // Wait for texture to load
+        const checkLoaded = () => {
+          if (dome.photoTexture && dome.photoTexture.isReady()) {
+            resolve(dome)
+          } else {
+            setTimeout(checkLoaded, 50)
+          }
+        }
+        checkLoaded()
+        
+      } catch (error) {
+        console.error(`Failed to create texture for ${nodeId}:`, error)
+        reject(error)
+      }
+    })
+  }
+  
+  async freeOldestTextures(count: number): Promise<void> {
+    const texturesToFree = Array.from(this.loadedTextures.keys())
+      .filter(id => id !== currentId) // Never free current texture
+      .slice(0, count)
+    
+    for (const nodeId of texturesToFree) {
+      this.disposeTexture(nodeId)
+    }
+  }
+  
+  disposeTexture(nodeId: string): void {
+    const texture = this.loadedTextures.get(nodeId)
+    if (texture) {
+      console.log(`🗑️ Disposing texture ${nodeId}`)
+      texture.dispose()
+      this.loadedTextures.delete(nodeId)
+      this.currentMemoryUsage -= this.estimateTextureSize()
+      
+      // Also remove from global domes object
+      if (domes[nodeId]) {
+        delete domes[nodeId]
+      }
+    }
+  }
+  
+  private estimateTextureSize(): number {
+    return 25 // MB per texture (rough estimate for 4K)
+  }
+  
+  getMemoryUsage(): number {
+    return this.currentMemoryUsage
+  }
+  
+  getLoadedCount(): number {
+    return this.loadedTextures.size
+  }
+  
+  isLoaded(nodeId: string): boolean {
+    return this.loadedTextures.has(nodeId)
+  }
+}
+
+// Global texture manager instance
+const textureManager = new TextureMemoryManager()
+
+// Performance monitoring class
+class PerformanceMonitor {
+  private frameCount = 0
+  private lastTime = performance.now()
+  private fps = 0
+  private memoryCheckInterval: number | null = null
+  
+  start() {
+    // Monitor FPS
+    const updateFPS = () => {
+      this.frameCount++
+      const now = performance.now()
+      
+      if (now - this.lastTime >= 1000) {
+        this.fps = Math.round((this.frameCount * 1000) / (now - this.lastTime))
+        this.frameCount = 0
+        this.lastTime = now
+        
+        // Log performance stats periodically
+        if (this.frameCount % 30 === 0) { // Every 30 seconds roughly
+          this.logPerformanceStats()
+        }
+      }
+      
+      requestAnimationFrame(updateFPS)
+    }
+    updateFPS()
+    
+    // Monitor memory usage
+    this.memoryCheckInterval = setInterval(() => {
+      this.checkMemoryPressure()
+    }, 5000) // Check every 5 seconds
+  }
+  
+  stop() {
+    if (this.memoryCheckInterval) {
+      clearInterval(this.memoryCheckInterval)
+      this.memoryCheckInterval = null
+    }
+  }
+  
+  getFPS(): number {
+    return this.fps
+  }
+  
+  private logPerformanceStats() {
+    const memoryUsage = textureManager.getMemoryUsage()
+    const loadedTextures = textureManager.getLoadedCount()
+    
+    console.log(`📊 Performance Stats: ${this.fps} FPS | Memory: ${memoryUsage}MB | Textures: ${loadedTextures}`)
+    
+    // Warn if performance is poor
+    if (this.fps < 45) {
+      console.warn(`⚠️ Low FPS detected: ${this.fps}. Consider reducing texture quality.`)
+    }
+    
+    if (memoryUsage > 150) {
+      console.warn(`⚠️ High memory usage: ${memoryUsage}MB. Consider unloading textures.`)
+    }
+  }
+  
+  private checkMemoryPressure() {
+    const memoryUsage = textureManager.getMemoryUsage()
+    
+    if (memoryUsage > MAX_MEMORY_MB * 0.8) {
+      console.warn(`🔥 Memory pressure detected: ${memoryUsage}MB. Triggering cleanup.`)
+      // Trigger aggressive cleanup
+      textureManager.freeOldestTextures(3).catch(console.error)
+    }
+  }
+}
+
+// Adaptive loading screen manager
+class LoadingScreenManager {
+  private loadingTimeout: number | null = null
+  private isVisible = false
+  
+  showLoadingWithDelay(delayMs = 300) {
+    if (this.isVisible) return
+    
+    this.loadingTimeout = setTimeout(() => {
+      this.showImmediate()
+    }, delayMs)
+  }
+  
+  hideLoadingImmediate() {
+    if (this.loadingTimeout) {
+      clearTimeout(this.loadingTimeout)
+      this.loadingTimeout = null
+    }
+    
+    if (this.isVisible) {
+      hideLoadingScreen().then(() => {
+        this.isVisible = false
+      }).catch(console.error)
+    }
+  }
+  
+  private showImmediate() {
+    if (!this.isVisible) {
+      createLoadingScreen()
+      this.isVisible = true
+    }
+  }
+}
+
+// Global instances
+const performanceMonitor = new PerformanceMonitor()
+const loadingScreenManager = new LoadingScreenManager()
 
 
 // Grad -> Radiant
@@ -331,7 +572,7 @@ function sphericalToCartesian(yawDeg: number, pitchDeg: number, r = SPHERE_RADIU
   return new Vector3(x, y, z)
 }
 
-// Preload all PhotoDomes and hotspots
+// Dynamic node loading with memory management
 async function initializeAllNodes() {
   console.log('Loading nodes from JSON...')
   
@@ -343,101 +584,148 @@ async function initializeAllNodes() {
     return
   }
   
-  console.log('Preloading all nodes...')
+  console.log(`📍 Loaded ${Object.keys(NODES).length} nodes from JSON`)
   
-  const nodeEntries = Object.entries(NODES)
-  const totalNodes = nodeEntries.length
-  let loadedNodes = 0
+  // Only load the initial node and its immediate neighbors
+  await loadNodeOnDemand(currentId, true) // High quality for current node
+  await preloadAdjacentNodes(currentId)
   
-  // Store camera's initial rotation for consistent coordinate system
+  isInitialized = true
+  console.log('🎯 Dynamic loading system initialized')
+}
+
+// Load a specific node on demand with texture manager
+async function loadNodeOnDemand(nodeId: string, highQuality = false): Promise<void> {
+  if (!NODES[nodeId]) {
+    console.warn(`Node ${nodeId} not found in NODES`)
+    return
+  }
+  
+  if (textureManager.isLoaded(nodeId)) {
+    console.log(`📸 Node ${nodeId} already loaded`)
+    return
+  }
+  
+  try {
+    console.log(`⏳ Loading node ${nodeId} (${highQuality ? 'high' : 'standard'} quality)`)
+    
+    const dome = await textureManager.loadTexture(nodeId, highQuality)
+    domes[nodeId] = dome
+    
+    // Store camera's initial rotation for consistent coordinate system
+    const initialCameraRotation = camera.rotation.clone()
+    dome.mesh.renderingGroupId = 0
+    dome.mesh.rotation = initialCameraRotation.clone()
+    
+    // Create hotspots for this node
+    await createHotspotsForNode(nodeId)
+    
+    console.log(`✅ Successfully loaded node ${nodeId}`)
+    
+  } catch (error) {
+    console.error(`❌ Failed to load node ${nodeId}:`, error)
+    // Create fallback dome
+    await createFallbackDome(nodeId)
+  }
+}
+
+// Create hotspots for a specific node
+async function createHotspotsForNode(nodeId: string): Promise<void> {
+  const node = NODES[nodeId]
+  if (!node) return
+  
+  hotspotMeshes[nodeId] = []
+  
+  node.links.forEach(link => {
+    const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS - 0.05)
+    const plane = MeshBuilder.CreatePlane(`hs_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE }, scene)
+    plane.position = pos
+    plane.billboardMode = Mesh.BILLBOARDMODE_ALL
+    plane.isPickable = true
+    plane.renderingGroupId = 2
+    plane.setEnabled(false) // Hide initially
+    
+    // Add GUI to hotspot
+    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 256, 256)
+    const rect = new Rectangle(); rect.thickness = 0; adt.addControl(rect)
+    const circle = new Ellipse()
+    circle.width = '80%'; circle.height = '80%'
+    circle.background = 'rgba(255, 255, 255, 0.5)'
+    rect.addControl(circle)
+    
+    rect.onPointerUpObservable.add(() => switchNode(link.to))
+    
+    const mat: any = plane.material
+    if (mat) {
+      mat.disableDepthWrite = true
+      mat.backFaceCulling = false
+    }
+    
+    hotspotMeshes[nodeId].push(plane)
+  })
+}
+
+// Create fallback dome for failed loads
+async function createFallbackDome(nodeId: string): Promise<void> {
+  console.warn(`🔄 Creating fallback dome for ${nodeId}`)
   const initialCameraRotation = camera.rotation.clone()
   
-  const promises = nodeEntries.map(([nodeId, node]) => {
-    return new Promise<void>((resolve) => {
-      new Texture(node.image, scene, true, false, Texture.TRILINEAR_SAMPLINGMODE,
-        () => {
-          console.log(`Successfully loaded texture for ${nodeId}: ${node.image}`)
-          // Create PhotoDome
-          const dome = new PhotoDome(`dome_${nodeId}`, node.image, { size: SPHERE_RADIUS * 2 }, scene)
-          dome.mesh.renderingGroupId = 0
-          // Lock orientation to initial camera rotation for consistency
-          dome.mesh.rotation = initialCameraRotation.clone()
-          dome.setEnabled(false) // Hide initially
-          domes[nodeId] = dome
-          console.log(`Created PhotoDome for ${nodeId}`)
-          
-          // Add compass overlay to the dome
-          // addCompassOverlayToDome(dome, nodeId)
-          
-          // Create hotspots for this node
-          hotspotMeshes[nodeId] = []
-          node.links.forEach(link => {
-            const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS - 0.05)
-            const plane = MeshBuilder.CreatePlane(`hs_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE }, scene)
-            plane.position = pos
-            plane.billboardMode = Mesh.BILLBOARDMODE_ALL
-            plane.isPickable = true
-            plane.renderingGroupId = 2
-            plane.setEnabled(false) // Hide initially
-            
-            // Add GUI to hotspot
-            const adt = AdvancedDynamicTexture.CreateForMesh(plane, 256, 256)
-            const rect = new Rectangle(); rect.thickness = 0; adt.addControl(rect)
-            const circle = new Ellipse()
-            circle.width = '80%'; circle.height = '80%'
-            circle.background = 'rgba(255, 255, 255, 0.5)'
-            rect.addControl(circle)
-            // const txt = new TextBlock()
-            // txt.text = link.label ?? link.to
-            // txt.fontSize = 32
-            // txt.color = '#000'
-            // rect.addControl(txt)
-            
-            rect.onPointerUpObservable.add(() => switchNode(link.to))
-            
-            const mat: any = plane.material
-            if (mat) {
-              mat.disableDepthWrite = true
-              mat.backFaceCulling = false
-            }
-            
-            hotspotMeshes[nodeId].push(plane)
-          })
-          
-          // Update progress
-          loadedNodes++
-          updateLoadingProgress(loadedNodes, totalNodes)
-          
-          console.log(`Preloaded node: ${nodeId} (${loadedNodes}/${totalNodes})`)
-          resolve()
-        },
-        () => {
-          console.warn(`Failed to load ${node.image}, using fallback for ${nodeId}`)
-          // Create fallback dome
-          const dome = new PhotoDome(`dome_${nodeId}`, FALLBACK_IMAGE, { size: SPHERE_RADIUS * 2 }, scene)
-          dome.mesh.renderingGroupId = 0
-          dome.mesh.rotation = initialCameraRotation.clone()
-          dome.setEnabled(false)
-          domes[nodeId] = dome
-          
-          // Add compass overlay to fallback dome too
-          // addCompassOverlayToDome(dome, nodeId)
-          
-          hotspotMeshes[nodeId] = []
-          
-          // Update progress even for failed loads
-          loadedNodes++
-          updateLoadingProgress(loadedNodes, totalNodes)
-          
-          resolve()
-        }
-      )
-    })
+  const dome = new PhotoDome(`dome_${nodeId}`, FALLBACK_IMAGE, { 
+    size: SPHERE_RADIUS * 2,
+    resolution: 64 // Lower resolution for fallback
+  }, scene)
+  
+  dome.mesh.renderingGroupId = 0
+  dome.mesh.rotation = initialCameraRotation.clone()
+  dome.setEnabled(false)
+  domes[nodeId] = dome
+  
+  hotspotMeshes[nodeId] = []
+}
+
+// Preload adjacent nodes based on links
+async function preloadAdjacentNodes(nodeId: string): Promise<void> {
+  const node = NODES[nodeId]
+  if (!node) return
+  
+  console.log(`🔄 Preloading adjacent nodes for ${nodeId}`)
+  
+  const adjacentPromises = node.links.map(async (link) => {
+    if (!textureManager.isLoaded(link.to)) {
+      await loadNodeOnDemand(link.to, false) // Standard quality for adjacent nodes
+    }
   })
   
-  await Promise.all(promises)
-  isInitialized = true
-  console.log('All nodes preloaded!')
+  await Promise.all(adjacentPromises)
+  console.log(`✅ Preloaded ${node.links.length} adjacent nodes for ${nodeId}`)
+}
+
+// Unload distant nodes to free memory
+async function unloadDistantNodes(keepNodeId: string): Promise<void> {
+  const keepNode = NODES[keepNodeId]
+  if (!keepNode) return
+  
+  // Get list of nodes that should be kept (current + adjacent)
+  const keepNodes = new Set([keepNodeId])
+  keepNode.links.forEach(link => keepNodes.add(link.to))
+  
+  // Dispose nodes not in keep list
+  const disposalPromises = Object.keys(domes).map(async (nodeId) => {
+    if (!keepNodes.has(nodeId)) {
+      console.log(`🗑️ Unloading distant node: ${nodeId}`)
+      
+      // Dispose hotspots
+      if (hotspotMeshes[nodeId]) {
+        hotspotMeshes[nodeId].forEach(mesh => mesh.dispose())
+        delete hotspotMeshes[nodeId]
+      }
+      
+      // Dispose texture through manager
+      textureManager.disposeTexture(nodeId)
+    }
+  })
+  
+  await Promise.all(disposalPromises)
 }
 
 // Switch to a specific node with smooth crossfade and zoom transition
@@ -458,6 +746,14 @@ async function switchToNode(nodeId: string) {
   isTransitioning = true
   
   try {
+    // Load target node if not already loaded
+    if (!textureManager.isLoaded(nodeId)) {
+      console.log(`⏳ Loading target node ${nodeId} for transition`)
+      loadingScreenManager.showLoadingWithDelay(200) // Show loading after 200ms if still loading
+      await loadNodeOnDemand(nodeId, true) // High quality for target
+      loadingScreenManager.hideLoadingImmediate()
+    }
+    
     // Get the link info for camera rotation if available
     const currentNode = NODES[currentId]
     const linkToTarget = currentNode?.links.find(link => link.to === nodeId)
@@ -493,8 +789,18 @@ async function switchToNode(nodeId: string) {
       domes[oldNodeId].setEnabled(false)
     }
     
+    // Preload adjacent nodes for the new current node
+    preloadAdjacentNodes(currentId).catch(error => {
+      console.warn('Failed to preload adjacent nodes:', error)
+    })
+    
+    // Unload distant nodes to free memory
+    unloadDistantNodes(currentId).catch(error => {
+      console.warn('Failed to unload distant nodes:', error)
+    })
+    
     updateMapSelection()
-    console.log(`Switched to node: ${currentId}`)
+    console.log(`✅ Switched to node: ${currentId} (Memory: ${textureManager.getMemoryUsage()}MB, Loaded: ${textureManager.getLoadedCount()})`)
   } finally {
     isTransitioning = false
     rebuildMapNodes()
@@ -991,12 +1297,68 @@ function updateMapSelection() {
 }
 
 async function enableXR() {
-  // Vollständiges WebXR-Default-Experience (UI, Pointer-Selection etc.)
+  // Enhanced WebXR experience with Quest 3 optimizations
   xrExperience = await WebXRDefaultExperience.CreateAsync(scene, {
     disableTeleportation: true, // In PhotoDomes unnatürlich – wir springen zwischen Knoten
-    pointerSelectionOptions: { enablePointerSelectionOnAllControllers: true }
-    // Hand-Tracking ist als Feature inkludiert (per Import aktiviert).
+    pointerSelectionOptions: { 
+      enablePointerSelectionOnAllControllers: true,
+      maxPointerDistance: 10 // Limit ray distance for performance
+    }
   })
+  
+  // Add WebXR state management for Meta menu transitions
+  if (xrExperience.baseExperience) {
+    xrExperience.baseExperience.onStateChangedObservable.add((state: any) => {
+      console.log(`🥽 XR State changed: ${state}`)
+      
+      if (state === 'IN_XR') {
+        // Ensure render loop is active when entering XR
+        if (!engine.runRenderLoop) {
+          engine.runRenderLoop(() => {
+            if (scene.activeCamera) {
+              scene.render()
+            }
+          })
+        }
+        
+        // Re-trigger any pending transitions after XR mode activation
+        if (isTransitioning) {
+          console.log('🔄 Resetting transition state after XR activation')
+          setTimeout(() => {
+            isTransitioning = false // Reset transition lock
+            rebuildMapNodes() // Refresh UI
+          }, 100)
+        }
+        
+        // Force update map position
+        setTimeout(() => updateMapPosition(), 500)
+        
+        // Apply Quest 3 specific optimizations
+        applyQuest3Optimizations()
+      }
+    })
+    
+    // Handle session interruption and restoration
+    xrExperience.baseExperience.sessionManager?.onXRSessionInit?.add(() => {
+      console.log('🟢 XR Session initialized')
+      
+      // Ensure proper engine state
+      engine.setHardwareScalingLevel(1.0)
+    })
+    
+    xrExperience.baseExperience.sessionManager?.onXRSessionEnded?.add(() => {
+      console.log('🔴 XR Session ended')
+      
+      // Clean up any stuck states
+      isTransitioning = false
+      
+      // Reset map position for non-VR mode
+      updateMapPosition()
+    })
+  }
+  
+  // Apply Quest 3 optimizations
+  applyQuest3Optimizations()
   
   // Set up controller tracking
   if (xrExperience.input) {
@@ -1025,6 +1387,39 @@ async function enableXR() {
       setTimeout(() => updateMapPosition(), 500) // Small delay to ensure controllers are initialized
     })
   }
+}
+
+// Quest 3 specific optimizations
+function applyQuest3Optimizations() {
+  console.log('🎯 Applying Meta Quest 3 optimizations')
+  
+  // Set optimal render settings for Quest 3
+  if (xrExperience?.baseExperience?.sessionManager?.session) {
+    const session = xrExperience.baseExperience.sessionManager.session
+    
+    // Try to set preferred framerate (90Hz for Quest 3)
+    if (session.updateRenderState) {
+      try {
+        session.updateRenderState({
+          baseLayer: session.renderState.baseLayer
+        })
+      } catch (error) {
+        console.warn('Could not update render state:', error)
+      }
+    }
+  }
+  
+  // Optimize scene for VR performance
+  scene.freezeActiveMeshes() // Freeze culling calculations when possible
+  scene.skipFrustumClipping = true // Skip frustum clipping for spherical environments
+  
+  // Optimize rendering pipeline
+  const engineCaps = scene.getEngine().getCaps()
+  if (engineCaps.maxAnisotropy) {
+    engineCaps.maxAnisotropy = 1 // Reduce anisotropic filtering for performance
+  }
+  
+  console.log('✅ Quest 3 optimizations applied')
 }
 
 async function switchNode(targetId: string) {
@@ -1161,6 +1556,10 @@ if (LAYOUT_MODE) {
 }
 
 enableXR().catch(console.error)
+
+// Start performance monitoring
+performanceMonitor.start()
+console.log('📊 Performance monitoring started')
 
 engine.runRenderLoop(() => scene.render())
 addEventListener('resize', () => engine.resize())

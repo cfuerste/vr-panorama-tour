@@ -70,7 +70,7 @@ scene.getEngine().disableManifestCheck = true
 const camera = new UniversalCamera('cam', new Vector3(0, 0, 0), scene)
 camera.minZ = 0.1
 // Eingangsrotation der Kamera
-camera.rotation.y = Math.PI
+// camera.rotation.y = Math.PI
 camera.attachControl(canvas, true)
 
 // --- Tour-Knoten (Beispiel) ---
@@ -223,6 +223,7 @@ class TextureMemoryManager {
         }, scene)
         
         dome.setEnabled(false) // Start disabled
+        dome.mesh.isPickable = false // Allow ray picking to pass through to hotspots
         
         // Wait for texture to load
         const checkLoaded = () => {
@@ -641,7 +642,7 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
   node.links.forEach((link, index) => {
     console.log(`🔗 Creating hotspot ${index + 1}: ${nodeId} → ${link.to} at yaw:${link.yaw}, pitch:${link.pitch}`)
     
-    const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS - 0.05)
+    const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS + 0.2) // Move hotspots OUTSIDE the sphere
     console.log(`📍 Calculated position:`, pos)
     
     const plane = MeshBuilder.CreatePlane(`hotspot_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE * 1.5 }, scene)
@@ -667,9 +668,7 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
     }
     
     const rect = new Rectangle()
-    rect.thickness = 2
-    rect.color = "rgba(255, 0, 0, 0.8)" // Red border for debugging
-    rect.background = "rgba(255, 255, 255, 0.1)" // Slight white background for visibility
+    rect.thickness = 0
     rect.name = `rect_${nodeId}_${link.to}`
     rect.isPointerBlocker = true // Ensure it can receive pointer events
     adt.addControl(rect)
@@ -693,27 +692,28 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
       console.log(`📝 Added label: ${link.label}`)
     }
     
-    // Enhanced interaction with debug logging
-    rect.onPointerEnterObservable.add(() => {
-      console.log(`🎯 Hotspot hover: ${nodeId} → ${link.to}`)
-      circle.background = 'rgba(255, 255, 255, 1.0)'
-      circle.scaleX = 1.2
-      circle.scaleY = 1.2
-    })
+    // DISABLED: Hover effects removed for cleaner VR experience
+    // rect.onPointerEnterObservable.add(() => {
+    //   console.log(`🎯 Hotspot hover: ${nodeId} → ${link.to}`)
+    //   circle.background = 'rgba(255, 255, 255, 1.0)'
+    //   circle.scaleX = 1.2
+    //   circle.scaleY = 1.2
+    // })
     
-    rect.onPointerOutObservable.add(() => {
-      console.log(`🎯 Hotspot unhover: ${nodeId} → ${link.to}`)
-      circle.background = 'rgba(255, 255, 255, 0.8)'
-      circle.scaleX = 1.0
-      circle.scaleY = 1.0
-    })
+    // rect.onPointerOutObservable.add(() => {
+    //   console.log(`🎯 Hotspot unhover: ${nodeId} → ${link.to}`)
+    //   circle.background = 'rgba(255, 255, 255, 0.8)'
+    //   circle.scaleX = 1.0
+    //   circle.scaleY = 1.0
+    // })
     
-    rect.onPointerUpObservable.add(() => {
-      console.log(`🔗 Hotspot clicked: ${nodeId} → ${link.to}`)
-      console.log(`🎯 Target node exists:`, !!NODES[link.to])
-      console.log(`🎭 Switching to node...`)
-      switchToNode(link.to)
-    })
+    // DISABLED: Using scene-level pointer observer instead
+    // rect.onPointerUpObservable.add(() => {
+    //   console.log(`🔗 Hotspot clicked: ${nodeId} → ${link.to}`)
+    //   console.log(`🎯 Target node exists:`, !!NODES[link.to])
+    //   console.log(`🎭 Switching to node...`)
+    //   switchToNode(link.to)
+    // })
 
     hotspotMeshes[nodeId].push(plane)
     console.log(`✅ Hotspot ${index + 1} created and added to array`)
@@ -733,6 +733,7 @@ async function createFallbackDome(nodeId: string): Promise<void> {
   }, scene)
   
   dome.mesh.renderingGroupId = 0
+  dome.mesh.isPickable = false // Allow ray picking to pass through to hotspots
   dome.mesh.rotation = initialCameraRotation.clone()
   dome.setEnabled(false)
   domes[nodeId] = dome
@@ -989,7 +990,7 @@ function crossfadeDomes(fromNodeId: string, toNodeId: string): Promise<void> {
 function rotateCameraToTarget(yaw: number, pitch: number): Promise<void> {
   return new Promise((resolve) => {
     // Convert yaw/pitch to camera rotation
-    const targetYaw = deg(-yaw) // Invert for camera
+    const targetYaw = deg(-yaw) + Math.PI // Invert for camera
     const targetPitch = deg(-pitch) // Invert for camera
     
     const startRotationY = camera.rotation.y
@@ -997,11 +998,13 @@ function rotateCameraToTarget(yaw: number, pitch: number): Promise<void> {
     
     // Calculate shortest path for yaw rotation
     let deltaY = targetYaw - startRotationY
-    if (deltaY > Math.PI) deltaY -= 2 * Math.PI
-    if (deltaY < -Math.PI) deltaY += 2 * Math.PI
+    
+    // Normalize deltaY to shortest path
+    while (deltaY > Math.PI) deltaY -= 2 * Math.PI
+    while (deltaY < -Math.PI) deltaY += 2 * Math.PI
     
     const targetRotationY = startRotationY + deltaY
-    const targetRotationX = startRotationX + (targetPitch - startRotationX) * 0.3 // Subtle pitch adjustment
+    const targetRotationX = startRotationX + (targetPitch - startRotationX) * 0.1 // More subtle pitch adjustment
     
     const startTime = Date.now()
     const rotationDuration = TRANSITION_DURATION * 0.7 // Slightly shorter than full transition
@@ -1631,6 +1634,7 @@ if (LAYOUT_MODE) {
     // Create a simple dome immediately for layout preview
     const layoutDome = new PhotoDome('layoutDome', FALLBACK_IMAGE, { size: SPHERE_RADIUS * 2 }, scene)
     layoutDome.mesh.renderingGroupId = 0
+    layoutDome.mesh.isPickable = false // Allow ray picking to pass through to hotspots
     console.log('Layout dome created with fallback image')
     
     // Add compass overlay to layout dome
@@ -1702,10 +1706,16 @@ scene.onPointerObservable.add((pointerInfo) => {
   if (pointerInfo.type === PointerEventTypes.POINTERUP && pointerInfo.pickInfo?.hit) {
     const pickedMesh = pointerInfo.pickInfo.pickedMesh
     if (pickedMesh && pickedMesh.name.startsWith('hotspot_')) {
-      // Extract target node from hotspot name (format: hotspot_nodeId_targetId)
-      const parts = pickedMesh.name.split('_')
-      if (parts.length >= 3) {
-        const targetNodeId = parts.slice(2).join('_') // Handle node IDs with underscores
+      // Extract target node from hotspot name (format: hotspot_sourceNodeId_targetNodeId)
+      const hotspotName = pickedMesh.name
+      
+      // Remove "hotspot_" prefix
+      const nameWithoutPrefix = hotspotName.substring(8) // "hotspot_".length = 8
+      
+      // Find which source node this hotspot belongs to by checking current node
+      const expectedPrefix = `${currentId}_`
+      if (nameWithoutPrefix.startsWith(expectedPrefix)) {
+        const targetNodeId = nameWithoutPrefix.substring(expectedPrefix.length)
         console.log(`🎯 VR/Mouse hotspot clicked: ${pickedMesh.name} → ${targetNodeId}`)
         if (NODES[targetNodeId]) {
           switchToNode(targetNodeId)

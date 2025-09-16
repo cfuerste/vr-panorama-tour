@@ -201,12 +201,24 @@ class TextureMemoryManager {
       throw new Error(`Node ${nodeId} not found`)
     }
     
+    // Determine image path based on quality level
+    let imagePath = node.image
+    if (highQuality) {
+      // Use high quality version (already in panos folder)
+      imagePath = node.image // e.g., "./panos/Panorama_Außenanlagen_001.jpg"
+    } else {
+      // Use mobile version for quick loading  
+      const baseName = node.image.replace('./panos/', '').replace('.jpg', '')
+      imagePath = `./panos/${baseName}_mobile.jpg`
+    }
+    
     return new Promise((resolve, reject) => {
       try {
-        const dome = new PhotoDome(nodeId, node.image, {
-          resolution: highQuality ? 128 : 64, // Lower resolution for background loading
+        const dome = new PhotoDome(nodeId + (highQuality ? '_hq' : '_mobile'), imagePath, {
+          resolution: highQuality ? 128 : 64,
           size: SPHERE_RADIUS,
-          useDirectMapping: false // Better performance on mobile
+          useDirectMapping: false,
+          faceForward: false // Better for panoramas
         }, scene)
         
         dome.setEnabled(false) // Start disabled
@@ -595,6 +607,10 @@ async function loadNodeOnDemand(nodeId: string, highQuality = false): Promise<vo
     const dome = await textureManager.loadTexture(nodeId, highQuality)
     domes[nodeId] = dome
     
+    console.log(`🏗️ Dome created and stored in domes[${nodeId}]`)
+    console.log(`🎪 Dome enabled status:`, dome.isEnabled())
+    console.log(`🖼️ Texture ready:`, dome.photoTexture?.isReady())
+    
     // Store camera's initial rotation for consistent coordinate system
     const initialCameraRotation = camera.rotation.clone()
     dome.mesh.renderingGroupId = 0
@@ -621,22 +637,54 @@ async function createHotspotsForNode(nodeId: string): Promise<void> {
   
   node.links.forEach(link => {
     const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS - 0.05)
-    const plane = MeshBuilder.CreatePlane(`hs_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE }, scene)
+    const plane = MeshBuilder.CreatePlane(`hs_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE * 1.5 }, scene)
     plane.position = pos
     plane.billboardMode = Mesh.BILLBOARDMODE_ALL
     plane.isPickable = true
     plane.renderingGroupId = 2
     plane.setEnabled(false) // Hide initially
     
-    // Add GUI to hotspot
-    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 256, 256)
-    const rect = new Rectangle(); rect.thickness = 0; adt.addControl(rect)
+    // Add GUI to hotspot with better visibility
+    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 512, 512)
+    const rect = new Rectangle()
+    rect.thickness = 0
+    adt.addControl(rect)
+    
     const circle = new Ellipse()
-    circle.width = '80%'; circle.height = '80%'
-    circle.background = 'rgba(255, 255, 255, 0.5)'
+    circle.width = '90%'
+    circle.height = '90%'
+    circle.background = 'rgba(255, 255, 255, 0.8)'
+    circle.color = 'rgba(0, 100, 200, 0.9)'
+    circle.thickness = 4
     rect.addControl(circle)
     
-    rect.onPointerUpObservable.add(() => switchNode(link.to))
+    // Add label text
+    if (link.label) {
+      const text = new TextBlock()
+      text.text = link.label
+      text.color = 'rgba(0, 100, 200, 1)'
+      text.fontSize = '24px'
+      text.fontWeight = 'bold'
+      rect.addControl(text)
+    }
+    
+    // Enhanced interaction
+    rect.onPointerEnterObservable.add(() => {
+      circle.background = 'rgba(255, 255, 255, 1.0)'
+      circle.scaleX = 1.2
+      circle.scaleY = 1.2
+    })
+    
+    rect.onPointerOutObservable.add(() => {
+      circle.background = 'rgba(255, 255, 255, 0.8)'
+      circle.scaleX = 1.0
+      circle.scaleY = 1.0
+    })
+    
+    rect.onPointerUpObservable.add(() => {
+      console.log(`🔗 Hotspot clicked: ${nodeId} → ${link.to}`)
+      switchToNode(link.to)
+    })
     
     const mat: any = plane.material
     if (mat) {
@@ -729,12 +777,17 @@ async function switchToNode(nodeId: string) {
   isTransitioning = true
   
   try {
-    // Load target node if not already loaded
-    if (!textureManager.isLoaded(nodeId)) {
-      console.log(`⏳ Loading target node ${nodeId} for transition`)
-      loadingScreenManager.showLoadingWithDelay(200) // Show loading after 200ms if still loading
-      await loadNodeOnDemand(nodeId, true) // High quality for target
+    // Phase 1: Load mobile version for immediate display
+    console.log(`⏳ Loading mobile version of ${nodeId} for quick transition`)
+    loadingScreenManager.showLoadingWithDelay(100) // Quick loading screen
+    
+    let mobileLoaded = false
+    try {
+      await loadNodeOnDemand(nodeId, false) // Load mobile version first
+      mobileLoaded = true
       loadingScreenManager.hideLoadingImmediate()
+    } catch (error) {
+      console.warn(`Failed to load mobile version of ${nodeId}:`, error)
     }
     
     // Get the link info for camera rotation if available
@@ -744,7 +797,7 @@ async function switchToNode(nodeId: string) {
     const oldNodeId = currentId
     currentId = nodeId
     
-    // Enable the new node but make it transparent initially
+    // Enable the new node (mobile version) but make it transparent initially
     if (domes[currentId]) {
       domes[currentId].setEnabled(true)
       const newMaterial = domes[currentId].mesh.material as any
@@ -761,15 +814,55 @@ async function switchToNode(nodeId: string) {
       hotspotMeshes[currentId].forEach(mesh => mesh.setEnabled(true))
     }
     
-    // Perform crossfade with zoom effect
+    // Perform crossfade with zoom effect using mobile version
     await Promise.all([
-      crossfadeDomes(oldNodeId, currentId),
+      mobileLoaded ? crossfadeDomes(oldNodeId, currentId) : Promise.resolve(),
       linkToTarget ? rotateCameraToTarget(linkToTarget.yaw, linkToTarget.pitch) : Promise.resolve()
     ])
     
     // Hide the old node completely
     if (domes[oldNodeId]) {
       domes[oldNodeId].setEnabled(false)
+    }
+    
+    updateMapSelection()
+    
+    // Phase 2: Upgrade to high quality version in background
+    console.log(`🔄 Upgrading ${nodeId} to high quality...`)
+    try {
+      // Load high quality version
+      await loadNodeOnDemand(nodeId, true) // High quality version
+      
+      // Replace mobile with HQ if successful
+      if (domes[currentId]) {
+        const oldMobileDome = domes[currentId]
+        
+        // Create HQ dome key
+        const hqKey = nodeId + '_hq'
+        if (domes[hqKey]) {
+          // Smoothly transition from mobile to HQ
+          domes[hqKey].setEnabled(true)
+          const hqMaterial = domes[hqKey].mesh.material as any
+          if (hqMaterial) {
+            hqMaterial.alpha = 0
+          }
+          
+          // Crossfade from mobile to HQ
+          await crossfadeDomes(currentId, hqKey)
+          
+          // Replace mobile dome with HQ dome
+          oldMobileDome.setEnabled(false)
+          oldMobileDome.dispose()
+          delete domes[currentId]
+          domes[currentId] = domes[hqKey]
+          delete domes[hqKey]
+          
+          console.log(`✨ Upgraded ${nodeId} to high quality`)
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to upgrade ${nodeId} to high quality:`, error)
+      // Continue with mobile version - it's better than nothing
     }
     
     // Preload adjacent nodes for the new current node
@@ -782,7 +875,6 @@ async function switchToNode(nodeId: string) {
       console.warn('Failed to unload distant nodes:', error)
     })
     
-    updateMapSelection()
     console.log(`✅ Switched to node: ${currentId} (Memory: ${textureManager.getMemoryUsage()}MB, Loaded: ${textureManager.getLoadedCount()})`)
   } finally {
     isTransitioning = false
@@ -1405,23 +1497,6 @@ function applyQuest3Optimizations() {
   console.log('✅ Quest 3 optimizations applied')
 }
 
-async function switchNode(targetId: string) {
-  if (!isInitialized) {
-    console.warn('Nodes not yet initialized')
-    return
-  }
-  
-  if (LAYOUT_MODE) {
-    // In layout mode, just update the map selection and show feedback
-    console.log(`🎯 LAYOUT MODE: Selected node "${targetId}"`)
-    currentId = targetId
-    updateMapSelection()
-    return
-  }
-  
-  await switchToNode(targetId)
-}
-
 // Function to show initial node without transitions
 function showInitialNode(nodeId: string) {
   if (!isInitialized) {
@@ -1429,30 +1504,45 @@ function showInitialNode(nodeId: string) {
     return
   }
   
-  console.log(`Attempting to show initial node: ${nodeId}`)
-  console.log(`Available domes:`, Object.keys(domes))
-  console.log(`Current dome:`, domes[nodeId])
+  console.log(`🎬 Attempting to show initial node: ${nodeId}`)
+  console.log(`🎭 Available domes:`, Object.keys(domes))
+  console.log(`🎯 Current dome exists:`, !!domes[nodeId])
+  console.log(`📍 Texture manager loaded:`, textureManager.isLoaded(nodeId))
   
   // Show initial node's dome and hotspots immediately
   currentId = nodeId
   if (domes[currentId]) {
+    console.log(`✅ Enabling dome for ${currentId}`)
     domes[currentId].setEnabled(true)
     // Ensure the material is fully opaque for initial display
     const material = domes[currentId].mesh.material as any
     if (material) {
       material.alpha = 1
+      console.log(`🎨 Material alpha set to 1`)
     }
-    console.log(`Dome enabled for ${currentId}`)
+    console.log(`🎪 Dome enabled for ${currentId}`)
   } else {
-    console.error(`No dome found for ${currentId}`)
+    console.error(`❌ No dome found for ${currentId}`)
+    // Try to load it if it's missing
+    console.log(`🔄 Attempting to load missing dome...`)
+    loadNodeOnDemand(nodeId, true).then(() => {
+      console.log(`🔃 Retrying show initial node after loading...`)
+      if (domes[nodeId]) {
+        domes[nodeId].setEnabled(true)
+        const material = domes[nodeId].mesh.material as any
+        if (material) {
+          material.alpha = 1
+        }
+      }
+    }).catch(err => console.error(`❌ Failed to load missing dome:`, err))
   }
   
   if (hotspotMeshes[currentId]) {
     hotspotMeshes[currentId].forEach(mesh => mesh.setEnabled(true))
-    console.log(`Enabled ${hotspotMeshes[currentId].length} hotspots for ${currentId}`)
+    console.log(`🎯 Enabled ${hotspotMeshes[currentId].length} hotspots for ${currentId}`)
   }
   
-  console.log(`Showing initial node: ${currentId}`)
+  console.log(`🎊 Showing initial node: ${currentId}`)
 }
 
 // --- Init ---

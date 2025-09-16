@@ -5,7 +5,6 @@ import { UniversalCamera } from '@babylonjs/core/Cameras/universalCamera'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { Mesh } from '@babylonjs/core/Meshes/mesh'
-import { Texture } from '@babylonjs/core/Materials/Textures/texture'
 import { PhotoDome } from '@babylonjs/core/Helpers/photoDome'
 import { WebXRDefaultExperience } from '@babylonjs/core/XR/webXRDefaultExperience'
 import '@babylonjs/core/XR/features/WebXRHandTracking' // Hand-Tracking-Feature laden
@@ -158,7 +157,6 @@ const TRANSITION_DURATION = 1000 // milliseconds
 
 // Memory management settings
 const MAX_LOADED_TEXTURES = 8 // Limit concurrent loaded textures
-const PRELOAD_RADIUS = 2 // Only preload immediate neighbors
 const MAX_MEMORY_MB = 200 // Conservative memory limit for Quest 3
 
 // Texture Memory Manager Class
@@ -502,21 +500,6 @@ function createLoadingScreen() {
   progressBg.addControl(loadingProgressBar)
   
   console.log('Loading screen created')
-}
-
-function updateLoadingProgress(loaded: number, total: number) {
-  if (!loadingProgressBar || !loadingText) return
-  
-  const percentage = Math.round((loaded / total) * 100)
-  const progressWidth = Math.max(0, (loaded / total) * 396) // 400px - 4px padding
-  
-  loadingProgressBar.width = `${progressWidth}px`
-  
-  if (loadingText) {
-    loadingText.text = `Loading panoramas... ${percentage}% (${loaded}/${total})`
-  }
-  
-  console.log(`Loading progress: ${loaded}/${total} (${percentage}%)`)
 }
 
 async function hideLoadingScreen() {

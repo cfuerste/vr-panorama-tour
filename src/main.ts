@@ -151,6 +151,57 @@ function isInVRMode(): boolean {
          xrExperience.baseExperience.state === 4 // IN_XR state
 }
 
+// Force WebXR rendering refresh for texture updates
+async function forceWebXRRefresh(): Promise<void> {
+  if (!isInVRMode() || !xrExperience) {
+    return
+  }
+  
+  try {
+    console.log('Forcing WebXR refresh for texture update...')
+    
+    // Method 1: Force scene render refresh
+    if (scene) {
+      scene.markAllMaterialsAsDirty(1) // Pass material flag
+      scene.render()
+    }
+    
+    // Method 2: Force WebXR session refresh if available
+    if (xrExperience.baseExperience && xrExperience.baseExperience.sessionManager) {
+      const sessionManager = xrExperience.baseExperience.sessionManager
+      
+      // Force rendering context refresh
+      if (sessionManager.scene) {
+        sessionManager.scene.markAllMaterialsAsDirty(1)
+      }
+    }
+    
+    // Method 3: Force engine refresh
+    if (engine) {
+      engine.wipeCaches(true)
+      
+      // Force multiple renders to ensure WebXR picks up the changes
+      await new Promise<void>(resolve => {
+        let renderCount = 0
+        const forceRender = () => {
+          if (renderCount < 5) { // Increased render count for VR
+            scene.render()
+            renderCount++
+            requestAnimationFrame(forceRender)
+          } else {
+            resolve()
+          }
+        }
+        forceRender()
+      })
+    }
+    
+    console.log('WebXR refresh completed')
+  } catch (error) {
+    console.warn('WebXR refresh error (non-critical):', error)
+  }
+}
+
 
 // Grad -> Radiant
 const deg = (d: number) => d * Math.PI / 180
@@ -459,8 +510,8 @@ async function switchToNode(nodeId: string) {
     }
     
     if (isInVR) {
-      // In VR mode, use instant switching due to material handling issues
-      console.log('VR mode detected, using instant dome switching')
+      // In VR mode, use instant switching with WebXR refresh
+      console.log('VR mode detected, using instant dome switching with WebXR refresh')
       
       // Hide old dome immediately
       if (domes[oldNodeId]) {
@@ -468,11 +519,12 @@ async function switchToNode(nodeId: string) {
         console.log(`Disabled dome: ${oldNodeId}`)
       }
       
-      // Show new dome immediately with VR-optimized material handling
+      // Show new dome with VR-specific refresh sequence
       if (domes[currentId]) {
+        // Step 1: Enable the dome
         domes[currentId].setEnabled(true)
         
-        // Force material refresh for VR with multiple attempts
+        // Step 2: Force material refresh
         const material = domes[currentId].mesh.material as any
         if (material) {
           material.alpha = 1
@@ -487,13 +539,45 @@ async function switchToNode(nodeId: string) {
             }
             // Force texture update if available
             if (material.diffuseTexture && material.diffuseTexture.isReady && !material.diffuseTexture.isReady()) {
-              material.diffuseTexture.getScene()?.markAllMaterialsAsDirty()
+              material.diffuseTexture.getScene()?.markAllMaterialsAsDirty(1)
             }
           } catch (error) {
             console.warn('VR material refresh error (non-critical):', error)
           }
         }
+        
         console.log(`Enabled dome: ${currentId}`)
+        
+        // Step 3: Force WebXR context refresh
+        await forceWebXRRefresh()
+        
+        // Step 4: Additional VR-specific refresh - temporarily disable/enable to force context update
+        try {
+          console.log('Performing VR context refresh cycle...')
+          domes[currentId].setEnabled(false)
+          
+          // Small delay to ensure WebXR processes the disable
+          await new Promise(resolve => setTimeout(resolve, 16)) // ~1 frame at 60fps
+          
+          domes[currentId].setEnabled(true)
+          
+          // Ensure material is still correct after re-enable
+          if (material) {
+            material.alpha = 1
+            // Force one more material refresh after the cycle
+            if (material.markDirty) {
+              material.markDirty()
+            }
+          }
+          
+          // Final verification render
+          scene.render()
+          
+          console.log('VR context refresh cycle completed')
+          console.log(`✅ VR dome switch to ${currentId} should now be visible without leaving VR`)
+        } catch (error) {
+          console.warn('VR context refresh cycle error (non-critical):', error)
+        }
       }
       
       // Still do camera rotation if available
@@ -1162,8 +1246,36 @@ async function enableXR() {
     
     // Update map position when entering/exiting XR
     if (xrExperience.baseExperience) {
-      xrExperience.baseExperience.onStateChangedObservable.add(() => {
+      xrExperience.baseExperience.onStateChangedObservable.add(async (state: any) => {
         setTimeout(() => updateMapPosition(), 500) // Small delay to ensure controllers are initialized
+        
+        // Force dome refresh when entering VR mode
+        if (state === 4 && isInitialized && currentId && domes[currentId]) { // IN_XR state
+          console.log('Entered VR mode, refreshing current dome texture...')
+          try {
+            // Force refresh the current dome in VR context
+            await forceWebXRRefresh()
+            
+            // Additional refresh cycle for newly entered VR context
+            const currentDome = domes[currentId]
+            if (currentDome) {
+              currentDome.setEnabled(false)
+              await new Promise(resolve => setTimeout(resolve, 32)) // 2 frames delay
+              currentDome.setEnabled(true)
+              
+              const material = currentDome.mesh.material as any
+              if (material) {
+                material.alpha = 1
+                if (material.markDirty) {
+                  material.markDirty()
+                }
+              }
+            }
+            console.log('VR dome refresh completed')
+          } catch (error) {
+            console.warn('VR dome refresh on state change error (non-critical):', error)
+          }
+        }
       })
       
       // Listen for session end to update button

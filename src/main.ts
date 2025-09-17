@@ -821,10 +821,10 @@ async function switchToNode(nodeId: string) {
         setTimeout(() => forceWebXRDomeRefresh(currentId), 50)
       }
       
-      // Still do camera rotation if available
-      if (linkToTarget) {
-        await rotateCameraToTarget(linkToTarget.yaw, linkToTarget.pitch)
-      }
+      // // Still do camera rotation if available
+      // if (linkToTarget) {
+      //   await rotateCameraToTarget(linkToTarget.yaw, linkToTarget.pitch)
+      // }
     } else {
       // Desktop mode: use smooth crossfade
       console.log('Desktop mode, using smooth crossfade')

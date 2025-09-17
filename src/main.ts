@@ -285,10 +285,51 @@ function updateLoadingProgress(loaded: number, total: number) {
   loadingProgressBar.width = `${progressWidth}px`
   
   if (loadingText) {
-    loadingText.text = `Loading panoramas... ${percentage}% (${loaded}/${total})`
+    // Update text based on loading phase
+    if (total <= PRELOAD_CONFIG.IMMEDIATE_LOAD_COUNT) {
+      loadingText.text = `Loading essential panoramas... ${percentage}% (${loaded}/${total})`
+    } else {
+      loadingText.text = `Loading panoramas... ${percentage}% (${loaded}/${total})`
+    }
   }
   
   console.log(`Loading progress: ${loaded}/${total} (${percentage}%)`)
+}
+
+// Show temporary loading indicator for on-demand loading
+function showQuickLoadingIndicator(nodeName: string) {
+  if (!overlayADT) return
+  
+  const indicator = new Rectangle("quickLoading")
+  indicator.width = "200px"
+  indicator.height = "60px"
+  indicator.cornerRadius = 10
+  indicator.color = "white"
+  indicator.background = "rgba(0, 0, 0, 0.8)"
+  indicator.horizontalAlignment = 1 // Center
+  indicator.verticalAlignment = 1 // Center
+  
+  const loadingText = new TextBlock("quickLoadingText")
+  loadingText.text = `Loading ${nodeName}...`
+  loadingText.color = "white"
+  loadingText.fontSize = 16
+  indicator.addControl(loadingText)
+  
+  overlayADT.addControl(indicator)
+  
+  // Auto-remove after 3 seconds (fallback)
+  setTimeout(() => {
+    try {
+      if (overlayADT && indicator.parent) {
+        overlayADT.removeControl(indicator)
+        indicator.dispose()
+      }
+    } catch (error) {
+      // Ignore disposal errors
+    }
+  }, 3000)
+  
+  return indicator
 }
 
 async function hideLoadingScreen() {
@@ -344,9 +385,41 @@ function sphericalToCartesian(yawDeg: number, pitchDeg: number, r = SPHERE_RADIU
   return new Vector3(x, y, z)
 }
 
-// Preload all PhotoDomes and hotspots
-async function initializeAllNodes() {
-  console.log('Loading nodes from JSON...')
+// Preload configuration
+const PRELOAD_CONFIG = {
+  // Load immediately: current node + directly connected nodes
+  IMMEDIATE_LOAD_COUNT: 3,
+  // Use optimized textures for faster loading
+  USE_OPTIMIZED_TEXTURES: true,
+  // Background loading batch size
+  BACKGROUND_BATCH_SIZE: 2,
+  // Background loading delay between batches (ms)
+  BACKGROUND_DELAY: 500,
+  // Texture sampling mode for faster loading (reduce quality for speed)
+  FAST_SAMPLING_MODE: Texture.BILINEAR_SAMPLINGMODE, // vs TRILINEAR_SAMPLINGMODE for quality
+  // Show performance info in console
+  SHOW_PERFORMANCE_INFO: true
+}
+
+// Track loading state
+let backgroundLoadingActive = false
+let loadedNodeIds = new Set<string>()
+let loadingQueue: string[] = []
+
+// Get optimized texture path if available
+function getOptimizedTexturePath(originalPath: string): string {
+  if (!PRELOAD_CONFIG.USE_OPTIMIZED_TEXTURES) {
+    return originalPath
+  }
+  
+  // Check if optimized version exists
+  const optimizedPath = originalPath.replace('./panos/', './panos/optimized_natural/')
+  return optimizedPath
+}
+
+// Preload only essential nodes for fast startup
+async function initializeEssentialNodes() {
+  console.log('Loading essential nodes for fast startup...')
   
   // Load nodes from JSON file
   NODES = await loadNodesFromJSON()
@@ -356,104 +429,278 @@ async function initializeAllNodes() {
     return
   }
   
-  console.log('Preloading all nodes...')
+  // Determine essential nodes to load immediately
+  const essentialNodeIds = getEssentialNodeIds()
   
-  const nodeEntries = Object.entries(NODES)
-  const totalNodes = nodeEntries.length
-  let loadedNodes = 0
+  console.log(`Loading ${essentialNodeIds.length} essential nodes immediately...`)
   
   // Store camera's initial rotation for consistent coordinate system
   const initialCameraRotation = camera.rotation.clone()
   
-  const promises = nodeEntries.map(([nodeId, node]) => {
-    return new Promise<void>((resolve) => {
-      new Texture(node.image, scene, true, false, Texture.TRILINEAR_SAMPLINGMODE,
-        () => {
-          console.log(`Successfully loaded texture for ${nodeId}: ${node.image}`)
-          // Create PhotoDome
-          const dome = new PhotoDome(`dome_${nodeId}`, node.image, { size: SPHERE_RADIUS * 2 }, scene)
-          dome.mesh.renderingGroupId = 0
-          // Lock orientation to initial camera rotation for consistency
-          dome.mesh.rotation = initialCameraRotation.clone()
-          dome.setEnabled(false) // Hide initially
-          domes[nodeId] = dome
-          console.log(`Created PhotoDome for ${nodeId}`)
-          
-          // Add compass overlay to the dome
-          // addCompassOverlayToDome(dome, nodeId)
-          
-          // Create hotspots for this node
-          hotspotMeshes[nodeId] = []
-          node.links.forEach(link => {
-            const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS - 0.05)
-            const plane = MeshBuilder.CreatePlane(`hs_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE }, scene)
-            plane.position = pos
-            plane.billboardMode = Mesh.BILLBOARDMODE_ALL
-            plane.isPickable = true
-            plane.renderingGroupId = 2
-            plane.setEnabled(false) // Hide initially
-            
-            // Add GUI to hotspot
-            const adt = AdvancedDynamicTexture.CreateForMesh(plane, 256, 256)
-            const rect = new Rectangle(); rect.thickness = 0; adt.addControl(rect)
-            const circle = new Ellipse()
-            circle.width = '80%'; circle.height = '80%'
-            circle.background = 'rgba(255, 255, 255, 0.5)'
-            rect.addControl(circle)
-            // const txt = new TextBlock()
-            // txt.text = link.label ?? link.to
-            // txt.fontSize = 32
-            // txt.color = '#000'
-            // rect.addControl(txt)
-            
-            rect.onPointerUpObservable.add(() => switchNode(link.to))
-            
-            const mat: any = plane.material
-            if (mat) {
-              mat.disableDepthWrite = true
-              mat.backFaceCulling = false
-            }
-            
-            hotspotMeshes[nodeId].push(plane)
-          })
-          
-          // Update progress
-          loadedNodes++
-          updateLoadingProgress(loadedNodes, totalNodes)
-          
-          console.log(`Preloaded node: ${nodeId} (${loadedNodes}/${totalNodes})`)
-          resolve()
-        },
-        () => {
-          console.warn(`Failed to load ${node.image}, using fallback for ${nodeId}`)
-          // Create fallback dome
-          const dome = new PhotoDome(`dome_${nodeId}`, FALLBACK_IMAGE, { size: SPHERE_RADIUS * 2 }, scene)
-          dome.mesh.renderingGroupId = 0
-          dome.mesh.rotation = initialCameraRotation.clone()
-          dome.setEnabled(false)
-          domes[nodeId] = dome
-          
-          // Add compass overlay to fallback dome too
-          // addCompassOverlayToDome(dome, nodeId)
-          
-          hotspotMeshes[nodeId] = []
-          
-          // Update progress even for failed loads
-          loadedNodes++
-          updateLoadingProgress(loadedNodes, totalNodes)
-          
-          resolve()
-        }
-      )
-    })
+  const promises = essentialNodeIds.map((nodeId, index) => {
+    return loadSingleNode(nodeId, NODES[nodeId], initialCameraRotation, index, essentialNodeIds.length)
   })
   
   await Promise.all(promises)
+  
+  // Mark remaining nodes for background loading
+  const remainingNodeIds = Object.keys(NODES).filter(id => !essentialNodeIds.includes(id))
+  loadingQueue = remainingNodeIds
+  
   isInitialized = true
-  console.log('All nodes preloaded!')
+  console.log(`Essential nodes loaded! ${remainingNodeIds.length} nodes queued for background loading.`)
+  
+  // Start background loading
+  startBackgroundLoading()
 }
 
-// Switch to a specific node with smooth crossfade and zoom transition
+// Get list of node IDs that should be loaded immediately
+function getEssentialNodeIds(): string[] {
+  const currentNode = NODES[currentId]
+  if (!currentNode) {
+    // Fallback to first available node
+    const firstNodeId = Object.keys(NODES)[0]
+    currentId = firstNodeId
+    return [firstNodeId]
+  }
+  
+  const essentialIds = new Set<string>()
+  
+  // 1. Always load the starting node
+  essentialIds.add(currentId)
+  
+  // 2. Load directly connected nodes (hotspot destinations)
+  currentNode.links.forEach(link => {
+    if (NODES[link.to]) {
+      essentialIds.add(link.to)
+    }
+  })
+  
+  // 3. Limit to configuration maximum
+  const idsArray = Array.from(essentialIds)
+  return idsArray.slice(0, PRELOAD_CONFIG.IMMEDIATE_LOAD_COUNT)
+}
+
+// Load a single node (dome + hotspots)
+async function loadSingleNode(
+  nodeId: string, 
+  node: Node, 
+  initialCameraRotation: Vector3, 
+  index: number, 
+  total: number
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const startTime = performance.now()
+    
+    // Try optimized texture first, fallback to original
+    const texturePath = getOptimizedTexturePath(node.image)
+    
+    console.log(`Loading node ${nodeId} (${index + 1}/${total}): ${texturePath}`)
+    
+    // Use faster sampling mode for quicker loading
+    const samplingMode = PRELOAD_CONFIG.FAST_SAMPLING_MODE
+    
+    new Texture(texturePath, scene, true, false, samplingMode,
+      () => {
+        const loadTime = performance.now() - startTime
+        if (PRELOAD_CONFIG.SHOW_PERFORMANCE_INFO) {
+          console.log(`✅ Successfully loaded texture for ${nodeId} in ${loadTime.toFixed(1)}ms`)
+        }
+        createDomeAndHotspots(nodeId, texturePath, node, initialCameraRotation)
+        loadedNodeIds.add(nodeId)
+        updateLoadingProgress(index + 1, total)
+        resolve()
+      },
+      () => {
+        console.warn(`⚠️ Optimized texture failed for ${nodeId}, trying original...`)
+        // Fallback to original texture
+        new Texture(node.image, scene, true, false, samplingMode,
+          () => {
+            const loadTime = performance.now() - startTime
+            if (PRELOAD_CONFIG.SHOW_PERFORMANCE_INFO) {
+              console.log(`✅ Successfully loaded original texture for ${nodeId} in ${loadTime.toFixed(1)}ms`)
+            }
+            createDomeAndHotspots(nodeId, node.image, node, initialCameraRotation)
+            loadedNodeIds.add(nodeId)
+            updateLoadingProgress(index + 1, total)
+            resolve()
+          },
+          () => {
+            const loadTime = performance.now() - startTime
+            console.warn(`❌ Failed to load ${node.image}, using fallback for ${nodeId} (${loadTime.toFixed(1)}ms)`)
+            createDomeAndHotspots(nodeId, FALLBACK_IMAGE, node, initialCameraRotation)
+            loadedNodeIds.add(nodeId)
+            updateLoadingProgress(index + 1, total)
+            resolve()
+          }
+        )
+      }
+    )
+  })
+}
+
+// Create dome and hotspots for a node
+function createDomeAndHotspots(nodeId: string, texturePath: string, node: Node, initialCameraRotation: Vector3) {
+  // Create PhotoDome
+  const dome = new PhotoDome(`dome_${nodeId}`, texturePath, { size: SPHERE_RADIUS * 2 }, scene)
+  dome.mesh.renderingGroupId = 0
+  dome.mesh.rotation = initialCameraRotation.clone()
+  dome.setEnabled(false) // Hide initially
+  domes[nodeId] = dome
+  
+  // Create hotspots for this node
+  hotspotMeshes[nodeId] = []
+  node.links.forEach(link => {
+    const pos = sphericalToCartesian(-link.yaw, link.pitch, SPHERE_RADIUS - 0.05)
+    const plane = MeshBuilder.CreatePlane(`hs_${nodeId}_${link.to}`, { size: HOTSPOT_SIZE }, scene)
+    plane.position = pos
+    plane.billboardMode = Mesh.BILLBOARDMODE_ALL
+    plane.isPickable = true
+    plane.renderingGroupId = 2
+    plane.setEnabled(false) // Hide initially
+    
+    // Add GUI to hotspot
+    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 256, 256)
+    const rect = new Rectangle(); rect.thickness = 0; adt.addControl(rect)
+    const circle = new Ellipse()
+    circle.width = '80%'; circle.height = '80%'
+    circle.background = 'rgba(255, 255, 255, 0.5)'
+    rect.addControl(circle)
+    
+    rect.onPointerUpObservable.add(() => switchNode(link.to))
+    
+    const mat: any = plane.material
+    if (mat) {
+      mat.disableDepthWrite = true
+      mat.backFaceCulling = false
+    }
+    
+    hotspotMeshes[nodeId].push(plane)
+  })
+}
+
+// Start background loading of remaining nodes
+async function startBackgroundLoading() {
+  if (backgroundLoadingActive || loadingQueue.length === 0) {
+    return
+  }
+  
+  backgroundLoadingActive = true
+  console.log(`🔄 Starting background loading of ${loadingQueue.length} remaining nodes...`)
+  
+  const initialCameraRotation = camera.rotation.clone()
+  const startTime = performance.now()
+  
+  while (loadingQueue.length > 0) {
+    // Process batch
+    const batch = loadingQueue.splice(0, PRELOAD_CONFIG.BACKGROUND_BATCH_SIZE)
+    
+    const batchPromises = batch.map(nodeId => {
+      const node = NODES[nodeId]
+      if (!node) return Promise.resolve()
+      
+      return loadSingleNode(nodeId, node, initialCameraRotation, 0, 1)
+        .catch(error => {
+          console.warn(`Background loading failed for ${nodeId}:`, error)
+        })
+    })
+    
+    await Promise.all(batchPromises)
+    
+    // Small delay between batches to keep the app responsive
+    if (loadingQueue.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, PRELOAD_CONFIG.BACKGROUND_DELAY))
+    }
+  }
+  
+  const totalTime = performance.now() - startTime
+  backgroundLoadingActive = false
+  
+  if (PRELOAD_CONFIG.SHOW_PERFORMANCE_INFO) {
+    console.log(`✅ All nodes loaded in background! Total time: ${(totalTime / 1000).toFixed(1)}s`)
+  }
+}
+
+// Utility function to get loading statistics
+function getLoadingStats() {
+  const totalNodes = Object.keys(NODES).length
+  const loadedCount = loadedNodeIds.size
+  const queuedCount = loadingQueue.length
+  
+  return {
+    total: totalNodes,
+    loaded: loadedCount,
+    queued: queuedCount,
+    percentage: Math.round((loadedCount / totalNodes) * 100)
+  }
+}
+
+// Load node on demand if not already loaded
+async function ensureNodeLoaded(nodeId: string): Promise<boolean> {
+  if (loadedNodeIds.has(nodeId)) {
+    return true // Already loaded
+  }
+  
+  const node = NODES[nodeId]
+  if (!node) {
+    console.warn(`Node ${nodeId} not found in NODES`)
+    return false
+  }
+  
+  console.log(`⚡ Loading node on demand: ${nodeId}`)
+  
+  // Show quick loading indicator
+  const loadingIndicator = showQuickLoadingIndicator(node.name || nodeId)
+  
+  try {
+    const initialCameraRotation = camera.rotation.clone()
+    await loadSingleNode(nodeId, node, initialCameraRotation, 0, 1)
+    
+    // Hide loading indicator
+    if (loadingIndicator && overlayADT) {
+      try {
+        overlayADT.removeControl(loadingIndicator)
+        loadingIndicator.dispose()
+      } catch (error) {
+        // Ignore disposal errors
+      }
+    }
+    
+    // Also prioritize loading connected nodes
+    const connectedNodes = node.links
+      .map(link => link.to)
+      .filter(id => NODES[id] && !loadedNodeIds.has(id))
+      .slice(0, 2) // Load up to 2 connected nodes
+    
+    if (connectedNodes.length > 0) {
+      console.log(`🔗 Also loading ${connectedNodes.length} connected nodes...`)
+      const connectedPromises = connectedNodes.map(id => 
+        loadSingleNode(id, NODES[id], initialCameraRotation, 0, 1)
+          .catch(error => console.warn(`Failed to load connected node ${id}:`, error))
+      )
+      // Don't await these - load in background
+      Promise.all(connectedPromises)
+    }
+    
+    return true
+  } catch (error) {
+    console.error(`Failed to load node ${nodeId}:`, error)
+    
+    // Hide loading indicator on error
+    if (loadingIndicator && overlayADT) {
+      try {
+        overlayADT.removeControl(loadingIndicator)
+        loadingIndicator.dispose()
+      } catch (error) {
+        // Ignore disposal errors
+      }
+    }
+    
+    return false
+  }
+}
+
+// Switch to a specific node with smart loading
 async function switchToNode(nodeId: string) {
   if (!isInitialized) {
     console.warn('Nodes not yet initialized')
@@ -466,6 +713,13 @@ async function switchToNode(nodeId: string) {
   
   if (isTransitioning) {
     return // Prevent multiple transitions
+  }
+  
+  // Ensure target node is loaded
+  const isLoaded = await ensureNodeLoaded(nodeId)
+  if (!isLoaded) {
+    console.error(`Failed to load target node: ${nodeId}`)
+    return
   }
   
   isTransitioning = true
@@ -1069,6 +1323,7 @@ if (LAYOUT_MODE) {
   (window as any).switchToFloorDA = switchToFloorDA;
   (window as any).switchFloor = switchFloor;
   (window as any).currentFloor = () => currentFloor;
+  (window as any).getLoadingStats = getLoadingStats;
 }
 
 function updateMapPosition() {
@@ -1426,14 +1681,25 @@ if (LAYOUT_MODE) {
   })
   
 } else {
-  // PRODUCTION MODE: Full loading experience
-  console.log('🚀 PRODUCTION MODE: Full loading experience')
+  // PRODUCTION MODE: Fast loading experience with progressive enhancement
+  console.log('🚀 PRODUCTION MODE: Fast loading with progressive enhancement')
+  
+  // Make stats available globally for debugging
+  ;(window as any).getLoadingStats = getLoadingStats
   
   // Create and show loading screen immediately
   createLoadingScreen()
 
-  // Initialize all nodes, then show the first one
-  initializeAllNodes().then(async () => {
+  // Initialize essential nodes for fast startup
+  const loadingStartTime = performance.now()
+  
+  initializeEssentialNodes().then(async () => {
+    const essentialLoadTime = performance.now() - loadingStartTime
+    
+    if (PRELOAD_CONFIG.SHOW_PERFORMANCE_INFO) {
+      console.log(`⚡ Essential nodes loaded in ${essentialLoadTime.toFixed(1)}ms`)
+    }
+    
     // Small delay to show 100% for a moment
     setTimeout(async () => {
       // Hide loading screen with smooth fade
@@ -1443,6 +1709,13 @@ if (LAYOUT_MODE) {
       showInitialNode(currentId)
       buildMap()
       rebuildMapNodes()
+      
+      // Show loading stats
+      const stats = getLoadingStats()
+      console.log(`📊 Loading complete! ${stats.loaded}/${stats.total} nodes ready (${stats.percentage}%)`)
+      if (stats.queued > 0) {
+        console.log(`🔄 ${stats.queued} nodes loading in background...`)
+      }
     }, 500)
   })
 }

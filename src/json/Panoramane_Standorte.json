@@ -73,6 +73,12 @@
                 "yaw": -134.10592661551195,
                 "pitch": -25.723468494084035,
                 "label": "Büro"
+            },
+            {
+                "to": "Panorama_Büro_003",
+                "yaw": 17.22732306711193,
+                "pitch": -26.25165145737605,
+                "label": "Büro"
             }
         ],
         "map": {
@@ -96,6 +102,12 @@
                 "yaw": -58.69795280891586,
                 "pitch": 0.0,
                 "label": "Dachaufstieg"
+            },
+            {
+                "to": "Panorama_Gleis3_002",
+                "yaw": -123.0073257624006,
+                "pitch": -74.11328214157594,
+                "label": "Gleis 3 Mittelgang"
             }
         ],
         "map": {
@@ -131,6 +143,12 @@
                 "yaw": 83.05078777191738,
                 "pitch": -14.503807172556625,
                 "label": "Gleis 7"
+            },
+            {
+                "to": "Panorama_Gleis5_004",
+                "yaw": 99.28745569979061,
+                "pitch": -52.304012945306,
+                "label": "Gleis 5"
             }
         ],
         "map": {
@@ -172,6 +190,12 @@
                 "yaw": 128.02499317339897,
                 "pitch": -42.94709633944454,
                 "label": "Untergeschoss"
+            },
+            {
+                "to": "Panorama_Gleis1_Dachstand_001",
+                "yaw": -150.89899473815387,
+                "pitch": 2.6271688641991795,
+                "label": "Dacharbeitsstand"
             }
         ],
         "map": {
@@ -271,6 +295,12 @@
                 "yaw": -149.13759143898815,
                 "pitch": 0.0,
                 "label": "Gleis 3 Mittelgang"
+            },
+            {
+                "to": "Panorama_UG_004",
+                "yaw": 47.67639178380258,
+                "pitch": -40.80747925431172,
+                "label": "Untergeschoss"
             }
         ],
         "map": {
@@ -381,6 +411,12 @@
                 "to": "Panorama_Gleis4_Dachstand_001",
                 "yaw": -95.60385161345646,
                 "pitch": 20.45041835614225,
+                "label": "Dacharbeitsstand"
+            },
+            {
+                "to": "Panorama_Gleis6_Dachstand_001",
+                "yaw": -158.81433600921395,
+                "pitch": 2.5873310981059636,
                 "label": "Dacharbeitsstand"
             }
         ],
@@ -493,6 +529,18 @@
                 "yaw": 6.9326476512915285,
                 "pitch": -2.9717266173015795,
                 "label": "Gleis 1 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis6_Dachstand_001",
+                "yaw": 63.332928138062194,
+                "pitch": 0.44843190864551247,
+                "label": "Dacharbeitsstand"
+            },
+            {
+                "to": "Panorama_Gleis1_Dachstand_001",
+                "yaw": 7.374242210624164,
+                "pitch": 0.4773266399218163,
+                "label": "Dacharbeitsstand"
             }
         ],
         "map": {
@@ -645,6 +693,12 @@
                 "yaw": 20.19732382940125,
                 "pitch": 0.0,
                 "label": "Gleis 1a"
+            },
+            {
+                "to": "Panorama_Gleis1_Dachstand_001",
+                "yaw": -144.2432368650073,
+                "pitch": 2.6078242758671855,
+                "label": "Dacharbeitsstand"
             }
         ],
         "map": {
@@ -680,6 +734,12 @@
                 "yaw": 30.86240856101185,
                 "pitch": 0.0,
                 "label": "Gleis 3"
+            },
+            {
+                "to": "Panorama_Dach_002",
+                "yaw": 56.9926742375994,
+                "pitch": 74.11328214157594,
+                "label": "Dachmitte"
             }
         ],
         "map": {
@@ -750,6 +810,12 @@
                 "yaw": 31.449895241523468,
                 "pitch": 0.0,
                 "label": "Gleis 5 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis6_Dachstand_001",
+                "yaw": 144.53470740577322,
+                "pitch": 13.131755168053743,
+                "label": "Dacharbeitsstand"
             }
         ],
         "map": {
@@ -820,6 +886,12 @@
                 "yaw": 77.7409267025962,
                 "pitch": 5.058002496390921,
                 "label": "Gleis 7"
+            },
+            {
+                "to": "Panorama_Dach_003",
+                "yaw": -80.7125443002094,
+                "pitch": 52.304012945306,
+                "label": "Lüftungsanlagen"
             }
         ],
         "map": {
@@ -890,6 +962,12 @@
                 "yaw": -10.941183352160174,
                 "pitch": -73.76870325499388,
                 "label": "Untergeschoss"
+            },
+            {
+                "to": "Panorama_Gleis6_Dachstand_001",
+                "yaw": -150.8990148309416,
+                "pitch": 2.6271703654401137,
+                "label": "Dacharbeitsstand"
             }
         ],
         "map": {
@@ -1035,6 +1113,12 @@
                 "yaw": -148.26797944161666,
                 "pitch": 0.0,
                 "label": "Büro"
+            },
+            {
+                "to": "Panorama_Dach_001",
+                "yaw": -162.7726769328881,
+                "pitch": 26.25165145737605,
+                "label": "Dachaufstieg"
             }
         ],
         "map": {
@@ -1052,6 +1136,12 @@
                 "yaw": -145.6673182348428,
                 "pitch": 0.0,
                 "label": "Büro"
+            },
+            {
+                "to": "Panorama_Werkstatt_003",
+                "yaw": 171.21213397072606,
+                "pitch": -56.05079849560892,
+                "label": "Werkstatt"
             }
         ],
         "map": {
@@ -1075,6 +1165,30 @@
                 "yaw": 3.4587079369734637,
                 "pitch": -27.719617701895476,
                 "label": "Gleis 1 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis2_002",
+                "yaw": 35.75676313499271,
+                "pitch": -2.6078242758671855,
+                "label": "Gleis 2 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis1_002",
+                "yaw": 29.101005261846137,
+                "pitch": -2.6271688641991795,
+                "label": "Gleis 1 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis4_Dachstand_001",
+                "yaw": 54.28891062148543,
+                "pitch": 0.0,
+                "label": "Dacharbeitsstand"
+            },
+            {
+                "to": "Panorama_Außenanlagen_003",
+                "yaw": -172.62575778937585,
+                "pitch": -0.4773266399218163,
+                "label": "vorderer Hof"
             }
         ],
         "map": {
@@ -1098,6 +1212,18 @@
                 "yaw": 2.4257596806227735,
                 "pitch": -27.728553226157867,
                 "label": "Gleis 4 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis6_Dachstand_001",
+                "yaw": -165.34195047720712,
+                "pitch": 0.0,
+                "label": "Dacharbeitsstand"
+            },
+            {
+                "to": "Panorama_Gleis1_Dachstand_001",
+                "yaw": -125.71108937851457,
+                "pitch": 0.0,
+                "label": "Dacharbeitsstand"
             }
         ],
         "map": {
@@ -1115,6 +1241,36 @@
                 "yaw": 3.4587191614609885,
                 "pitch": -27.719693879711688,
                 "label": "Gleis 6 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis5_001",
+                "yaw": -35.465292594226796,
+                "pitch": -13.131755168053743,
+                "label": "Gleis 5 Einfahrt"
+            },
+            {
+                "to": "Panorama_Gleis6_002",
+                "yaw": 29.100985169058394,
+                "pitch": -2.6271703654401137,
+                "label": "Gleis 6 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis5_002",
+                "yaw": 21.18566399078605,
+                "pitch": -2.5873310981059636,
+                "label": "Gleis 5 Mittelgang"
+            },
+            {
+                "to": "Panorama_Gleis4_Dachstand_001",
+                "yaw": 14.658049522792881,
+                "pitch": 0.0,
+                "label": "Dacharbeitsstand"
+            },
+            {
+                "to": "Panorama_Außenanlagen_003",
+                "yaw": -116.66707186193781,
+                "pitch": -0.44843190864551247,
+                "label": "vorderer Hof"
             }
         ],
         "map": {
@@ -1207,6 +1363,12 @@
                 "yaw": -125.35318080590967,
                 "pitch": 0.0,
                 "label": "Untergeschoss"
+            },
+            {
+                "to": "Panorama_Gleis3_003",
+                "yaw": -132.3236082161974,
+                "pitch": 40.80747925431172,
+                "label": "Gleis 3"
             }
         ],
         "map": {
@@ -1259,6 +1421,12 @@
                 "yaw": 67.29245272814114,
                 "pitch": 2.1038707232422666,
                 "label": "Gleis 1a"
+            },
+            {
+                "to": "Panorama_Büro_004",
+                "yaw": -8.787866029273966,
+                "pitch": 56.05079849560892,
+                "label": "Büro"
             }
         ],
         "map": {

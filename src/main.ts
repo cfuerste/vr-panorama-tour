@@ -772,8 +772,8 @@ async function switchToNode(nodeId: string) {
     }
     
     if (isInVR) {
-      // In VR mode, use complete dome recreation for WebXR compatibility
-      console.log('VR mode detected, using complete dome recreation for WebXR')
+      // Test: Use Babylon.js recommended approach instead of recreation
+      console.log('VR mode: Testing Babylon.js recommended texture update approach')
       
       // Hide old dome immediately
       if (domes[oldNodeId]) {
@@ -781,36 +781,27 @@ async function switchToNode(nodeId: string) {
         console.log(`Disabled dome: ${oldNodeId}`)
       }
       
-      // For WebXR, we need to completely recreate the dome to ensure proper texture binding
+      // Enable target dome and force texture refresh (Babylon.js recommended)
       if (domes[currentId]) {
-        const existingDome = domes[currentId]
-        const texturePath = getOriginalTexturePath(currentId)
+        domes[currentId].setEnabled(true)
         
-        console.log(`Recreating dome for WebXR: ${currentId} with texture: ${texturePath}`)
-        
-        // Dispose the existing dome
-        existingDome.dispose()
-        delete domes[currentId]
-        
-        // Create a new dome with fresh material and texture
-        const newDome = new PhotoDome(`dome_${currentId}_vr`, texturePath, { size: SPHERE_RADIUS * 2 }, scene)
-        newDome.mesh.renderingGroupId = 0
-        newDome.mesh.rotation = camera.rotation.clone()
-        
-        // Store the new dome
-        domes[currentId] = newDome
-        
-        // Enable immediately
-        newDome.setEnabled(true)
-        
-        // Force WebXR refresh
-        if (scene) {
-          scene.markAllMaterialsAsDirty(1)
+        // Force immediate WebXR-compatible material refresh
+        const dome = domes[currentId]
+        const material = dome.mesh.material as any
+        if (material) {
+          // Use Babylon.js internal WebXR refresh pattern
+          material.markAsDirty()
+          scene.markAllMaterialsAsDirty(1)  // MATERIAL_TextureDirtyFlag = 1
+          
+          // Force multiple render cycles for WebXR
           scene.render()
-          setTimeout(() => scene.render(), 16)
+          setTimeout(() => {
+            scene.render()
+            setTimeout(() => scene.render(), 16)
+          }, 16)
         }
         
-        console.log(`✅ VR dome recreated for ${currentId}`)
+        console.log(`✅ VR dome updated using Babylon.js best practice: ${currentId}`)
       }
       
       // Still do camera rotation if available

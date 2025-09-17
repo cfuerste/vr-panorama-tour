@@ -409,17 +409,6 @@ function getOptimizedTexturePath(originalPath: string): string {
   return optimizedPath
 }
 
-// Get the original texture path for a node ID
-function getOriginalTexturePath(nodeId: string): string {
-  const node = NODES[nodeId]
-  if (!node) {
-    return FALLBACK_IMAGE
-  }
-  
-  // Try optimized first, then fallback to original
-  return getOptimizedTexturePath(node.image)
-}
-
 // Preload only essential nodes for fast startup
 async function initializeEssentialNodes() {
   console.log('Loading essential nodes for fast startup...')

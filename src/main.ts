@@ -761,8 +761,8 @@ async function switchToNode(nodeId: string) {
     }
     
     if (isInVR) {
-      // Test: Use Babylon.js recommended approach instead of recreation
-      console.log('VR mode: Testing Babylon.js recommended texture update approach')
+      // Advanced WebXR approach: Force GPU-level texture refresh
+      console.log('VR mode: Using advanced WebXR texture refresh approach')
       
       // Hide old dome immediately
       if (domes[oldNodeId]) {
@@ -770,27 +770,62 @@ async function switchToNode(nodeId: string) {
         console.log(`Disabled dome: ${oldNodeId}`)
       }
       
-      // Enable target dome and force texture refresh (Babylon.js recommended)
+      // Enable target dome with aggressive WebXR refresh
       if (domes[currentId]) {
-        domes[currentId].setEnabled(true)
-        
-        // Force immediate WebXR-compatible material refresh
         const dome = domes[currentId]
+        dome.setEnabled(true)
+        
+        // Get the material and texture for direct manipulation
         const material = dome.mesh.material as any
-        if (material) {
-          // Use Babylon.js internal WebXR refresh pattern
-          material.markAsDirty()
-          scene.markAllMaterialsAsDirty(1)  // MATERIAL_TextureDirtyFlag = 1
+        const texture = material?.diffuseTexture || material?.reflectionTexture
+        
+        if (material && texture) {
+          console.log('Forcing WebXR-compatible texture and material refresh')
           
-          // Force multiple render cycles for WebXR
-          scene.render()
-          setTimeout(() => {
+          // Force texture reload at GPU level
+          texture._cachedWrapU = null
+          texture._cachedWrapV = null
+          texture.updateSamplingMode(texture.samplingMode)
+          
+          // Mark everything as dirty for WebXR
+          texture.getInternalTexture()?._markAllSubMeshesAsImageDirty()
+          material.markAsDirty()
+          material._markAllSubMeshesAsImageDirty()
+          material._markAllSubMeshesAsTexturesDirty()
+          
+          // Force scene-wide material refresh
+          scene.markAllMaterialsAsDirty(1) // TextureDirtyFlag
+          scene.markAllMaterialsAsDirty(2) // LightDirtyFlag  
+          scene.markAllMaterialsAsDirty(4) // FresnelDirtyFlag
+          
+          // Force multiple render cycles with delays for WebXR
+          const forceRenderCycles = () => {
             scene.render()
-            setTimeout(() => scene.render(), 16)
-          }, 16)
+            requestAnimationFrame(() => {
+              scene.render()
+              requestAnimationFrame(() => {
+                scene.render()
+                // Additional WebXR-specific refresh
+                if (scene.activeCamera && (scene.activeCamera as any).rigCameras) {
+                  const rigCameras = (scene.activeCamera as any).rigCameras
+                  rigCameras.forEach((cam: any) => {
+                    if (cam.outputRenderTarget) {
+                      cam.outputRenderTarget.render()
+                    }
+                  })
+                }
+              })
+            })
+          }
+          
+          forceRenderCycles()
+          
+          // Additional delayed refresh for stubborn WebXR
+          setTimeout(forceRenderCycles, 50)
+          setTimeout(forceRenderCycles, 100)
         }
         
-        console.log(`✅ VR dome updated using Babylon.js best practice: ${currentId}`)
+        console.log(`✅ VR dome updated with aggressive WebXR refresh: ${currentId}`)
       }
       
       // Still do camera rotation if available

@@ -144,6 +144,13 @@ let leftController: any = null
 // Transition settings
 const TRANSITION_DURATION = 1000 // milliseconds
 
+// Utility function to check if we're currently in VR mode
+function isInVRMode(): boolean {
+  return xrExperience && 
+         xrExperience.baseExperience && 
+         xrExperience.baseExperience.state === 4 // IN_XR state
+}
+
 
 // Grad -> Radiant
 const deg = (d: number) => d * Math.PI / 180
@@ -420,32 +427,102 @@ async function switchToNode(nodeId: string) {
     const oldNodeId = currentId
     currentId = nodeId
     
-    // Enable the new node but make it transparent initially
-    if (domes[currentId]) {
-      domes[currentId].setEnabled(true)
-      const newMaterial = domes[currentId].mesh.material as any
-      if (newMaterial) {
-        newMaterial.alpha = 0
-      }
-    }
+    // Check if we're in VR mode
+    const isInVR = isInVRMode()
     
-    // Hide old hotspots and show new ones
+    console.log(`Switching from ${oldNodeId} to ${currentId}, VR mode: ${isInVR}`)
+    
+    // Hide old hotspots and show new ones FIRST
     if (hotspotMeshes[oldNodeId]) {
-      hotspotMeshes[oldNodeId].forEach(mesh => mesh.setEnabled(false))
+      hotspotMeshes[oldNodeId].forEach(mesh => {
+        mesh.setEnabled(false)
+        // In VR mode, ensure proper cleanup
+        if (isInVR && mesh.material) {
+          const material = mesh.material as any
+          if (material && material.markDirty) {
+            material.markDirty()
+          }
+        }
+      })
     }
     if (hotspotMeshes[currentId]) {
-      hotspotMeshes[currentId].forEach(mesh => mesh.setEnabled(true))
+      hotspotMeshes[currentId].forEach(mesh => {
+        mesh.setEnabled(true)
+        // In VR mode, ensure proper material refresh
+        if (isInVR && mesh.material) {
+          const material = mesh.material as any
+          if (material && material.markDirty) {
+            material.markDirty()
+          }
+        }
+      })
     }
     
-    // Perform crossfade with zoom effect
-    await Promise.all([
-      crossfadeDomes(oldNodeId, currentId),
-      linkToTarget ? rotateCameraToTarget(linkToTarget.yaw, linkToTarget.pitch) : Promise.resolve()
-    ])
-    
-    // Hide the old node completely
-    if (domes[oldNodeId]) {
-      domes[oldNodeId].setEnabled(false)
+    if (isInVR) {
+      // In VR mode, use instant switching due to material handling issues
+      console.log('VR mode detected, using instant dome switching')
+      
+      // Hide old dome immediately
+      if (domes[oldNodeId]) {
+        domes[oldNodeId].setEnabled(false)
+        console.log(`Disabled dome: ${oldNodeId}`)
+      }
+      
+      // Show new dome immediately with VR-optimized material handling
+      if (domes[currentId]) {
+        domes[currentId].setEnabled(true)
+        
+        // Force material refresh for VR with multiple attempts
+        const material = domes[currentId].mesh.material as any
+        if (material) {
+          material.alpha = 1
+          
+          // VR-specific material refresh techniques
+          try {
+            if (material.markDirty) {
+              material.markDirty()
+            }
+            if (material._mustRebind) {
+              material._mustRebind()
+            }
+            // Force texture update if available
+            if (material.diffuseTexture && material.diffuseTexture.isReady && !material.diffuseTexture.isReady()) {
+              material.diffuseTexture.getScene()?.markAllMaterialsAsDirty()
+            }
+          } catch (error) {
+            console.warn('VR material refresh error (non-critical):', error)
+          }
+        }
+        console.log(`Enabled dome: ${currentId}`)
+      }
+      
+      // Still do camera rotation if available
+      if (linkToTarget) {
+        await rotateCameraToTarget(linkToTarget.yaw, linkToTarget.pitch)
+      }
+    } else {
+      // Desktop mode: use smooth crossfade
+      console.log('Desktop mode, using smooth crossfade')
+      
+      // Enable the new node but make it transparent initially
+      if (domes[currentId]) {
+        domes[currentId].setEnabled(true)
+        const newMaterial = domes[currentId].mesh.material as any
+        if (newMaterial) {
+          newMaterial.alpha = 0
+        }
+      }
+      
+      // Perform crossfade with zoom effect
+      await Promise.all([
+        crossfadeDomes(oldNodeId, currentId),
+        linkToTarget ? rotateCameraToTarget(linkToTarget.yaw, linkToTarget.pitch) : Promise.resolve()
+      ])
+      
+      // Hide the old node completely
+      if (domes[oldNodeId]) {
+        domes[oldNodeId].setEnabled(false)
+      }
     }
     
     updateMapSelection()
@@ -463,6 +540,7 @@ function crossfadeDomes(fromNodeId: string, toNodeId: string): Promise<void> {
     const toDome = domes[toNodeId]
     
     if (!fromDome || !toDome) {
+      console.warn(`Missing dome for crossfade: from=${!!fromDome}, to=${!!toDome}`)
       resolve()
       return
     }
@@ -472,6 +550,7 @@ function crossfadeDomes(fromNodeId: string, toNodeId: string): Promise<void> {
     const toMaterial = toDome.mesh.material as any
     
     if (!fromMaterial || !toMaterial) {
+      console.warn(`Missing materials for crossfade: from=${!!fromMaterial}, to=${!!toMaterial}`)
       resolve()
       return
     }
@@ -485,39 +564,60 @@ function crossfadeDomes(fromNodeId: string, toNodeId: string): Promise<void> {
     // Set initial state for new dome
     toMaterial.alpha = 0
     
+    console.log(`Starting crossfade from ${fromNodeId} to ${toNodeId}`)
+    
     const crossfadeAnimation = () => {
       const elapsed = Date.now() - startTime
-      const progress = Math.min(elapsed / TRANSITION_DURATION, 1)
+      let progress = Math.min(elapsed / TRANSITION_DURATION, 1)
       
       // Use ease-in-out curve for smooth transition
       const easeProgress = progress < 0.5 
         ? 2 * progress * progress 
         : 1 - Math.pow(-2 * progress + 2, 2) / 2
       
-      // Crossfade the alpha values
-      fromMaterial.alpha = initialFromAlpha * (1 - easeProgress)
-      toMaterial.alpha = easeProgress
-      
-      // Subtle zoom effect on the outgoing dome
-      const currentScale = Vector3.Lerp(initialScale, targetScale, easeProgress * 0.5) // Subtle effect
-      fromDome.mesh.scaling = currentScale
-      
-      // Zoom in effect on the incoming dome (starts zoomed out slightly)
-      const incomingScale = Vector3.Lerp(
-        initialScale.clone().scaleInPlace(1.02), // Start slightly zoomed in
-        initialScale, // End at normal scale
-        easeProgress
-      )
-      toDome.mesh.scaling = incomingScale
+      try {
+        // Crossfade the alpha values with safety checks
+        if (fromMaterial && typeof fromMaterial.alpha === 'number') {
+          fromMaterial.alpha = initialFromAlpha * (1 - easeProgress)
+        }
+        if (toMaterial && typeof toMaterial.alpha === 'number') {
+          toMaterial.alpha = easeProgress
+        }
+        
+        // Subtle zoom effect on the outgoing dome
+        if (fromDome && fromDome.mesh && fromDome.mesh.scaling) {
+          const currentScale = Vector3.Lerp(initialScale, targetScale, easeProgress * 0.5) // Subtle effect
+          fromDome.mesh.scaling = currentScale
+        }
+        
+        // Zoom in effect on the incoming dome (starts zoomed out slightly)
+        if (toDome && toDome.mesh && toDome.mesh.scaling) {
+          const incomingScale = Vector3.Lerp(
+            initialScale.clone().scaleInPlace(1.02), // Start slightly zoomed in
+            initialScale, // End at normal scale
+            easeProgress
+          )
+          toDome.mesh.scaling = incomingScale
+        }
+      } catch (error) {
+        console.warn('Error during crossfade animation:', error)
+        // Force completion
+        progress = 1
+      }
       
       if (progress < 1) {
         requestAnimationFrame(crossfadeAnimation)
       } else {
-        // Ensure final state
-        fromMaterial.alpha = 0
-        toMaterial.alpha = 1
-        fromDome.mesh.scaling = initialScale
-        toDome.mesh.scaling = initialScale
+        // Ensure final state with safety checks
+        try {
+          if (fromMaterial) fromMaterial.alpha = 0
+          if (toMaterial) toMaterial.alpha = 1
+          if (fromDome && fromDome.mesh) fromDome.mesh.scaling = initialScale
+          if (toDome && toDome.mesh) toDome.mesh.scaling = initialScale
+        } catch (error) {
+          console.warn('Error setting final crossfade state:', error)
+        }
+        console.log(`Crossfade completed from ${fromNodeId} to ${toNodeId}`)
         resolve()
       }
     }

@@ -151,6 +151,48 @@ function isInVRMode(): boolean {
          xrExperience.baseExperience.state === 4 // IN_XR state
 }
 
+// Force a comprehensive dome refresh for WebXR compatibility
+function forceWebXRDomeRefresh(nodeId: string): void {
+  if (!isInVRMode() || !domes[nodeId]) {
+    return
+  }
+  
+  const dome = domes[nodeId]
+  if (!dome || !dome.mesh || !dome.mesh.material) {
+    return
+  }
+  
+  const material = dome.mesh.material as any
+  
+  try {
+    // Force texture refresh for WebXR
+    if (material.diffuseTexture) {
+      material.diffuseTexture.wrapU = material.diffuseTexture.wrapU
+      material.diffuseTexture.wrapV = material.diffuseTexture.wrapV
+      if (material.diffuseTexture._prepareRowForTextureGeneration) {
+        material.diffuseTexture._prepareRowForTextureGeneration()
+      }
+    }
+    
+    // Mark material and mesh as dirty
+    if (material.markDirty) {
+      material.markDirty()
+    }
+    material.markAsDirty()
+    dome.mesh.markAsDirty()
+    
+    // Force WebXR scene refresh
+    if (scene) {
+      scene.markAllMaterialsAsDirty(1) // Texture flag
+      scene.render()
+    }
+    
+    console.log(`Forced WebXR refresh for dome: ${nodeId}`)
+  } catch (error) {
+    console.warn(`Error during WebXR dome refresh for ${nodeId}:`, error)
+  }
+}
+
 
 
 // Grad -> Radiant
@@ -719,8 +761,8 @@ async function switchToNode(nodeId: string) {
     }
     
     if (isInVR) {
-      // In VR mode, use optimized instant switching
-      console.log('VR mode detected, using optimized dome switching')
+      // In VR mode, use enhanced dome switching with proper WebXR refresh
+      console.log('VR mode detected, using enhanced dome switching for WebXR')
       
       // Hide old dome immediately
       if (domes[oldNodeId]) {
@@ -728,29 +770,55 @@ async function switchToNode(nodeId: string) {
         console.log(`Disabled dome: ${oldNodeId}`)
       }
       
-      // Show new dome with minimal refresh
+      // Show new dome with comprehensive WebXR refresh
       if (domes[currentId]) {
         domes[currentId].setEnabled(true)
         
-        // Simple material refresh for VR
+        // Enhanced material refresh for VR with WebXR compatibility
         const material = domes[currentId].mesh.material as any
         if (material) {
           material.alpha = 1
-          // Only mark material as dirty - avoid expensive operations
+          
+          // Force texture binding refresh for WebXR
+          if (material.diffuseTexture) {
+            material.diffuseTexture.wrapU = material.diffuseTexture.wrapU
+            material.diffuseTexture.wrapV = material.diffuseTexture.wrapV
+            material.diffuseTexture._prepareRowForTextureGeneration()
+          }
+          
+          // Mark material as dirty with full refresh
           if (material.markDirty) {
             material.markDirty()
           }
+          material.markAsDirty()
         }
         
         console.log(`Enabled dome: ${currentId}`)
         
-        // Single lightweight WebXR refresh
+        // Enhanced WebXR scene refresh
         if (scene) {
-          scene.markAllMaterialsAsDirty(1)
+          // Force all materials to refresh
+          scene.markAllMaterialsAsDirty(1) // Texture flag
+          scene.markAllMaterialsAsDirty(2) // Light flag
+          
+          // Force WebXR to refresh its render targets
+          if (xrExperience && xrExperience.baseExperience && xrExperience.baseExperience.sessionManager) {
+            const sessionManager = xrExperience.baseExperience.sessionManager
+            if (sessionManager.scene) {
+              sessionManager.scene.markAllMaterialsAsDirty(1)
+            }
+          }
+          
+          // Multiple render calls to ensure WebXR picks up changes
           scene.render()
+          setTimeout(() => scene.render(), 16) // Additional render on next frame
+          setTimeout(() => scene.render(), 32) // Additional render after 2 frames
         }
         
-        console.log(`✅ VR dome switch to ${currentId} completed`)
+        console.log(`✅ VR dome switch to ${currentId} completed with enhanced refresh`)
+        
+        // Additional WebXR-specific dome refresh
+        setTimeout(() => forceWebXRDomeRefresh(currentId), 50)
       }
       
       // Still do camera rotation if available
@@ -1423,15 +1491,50 @@ async function enableXR() {
       xrExperience.baseExperience.onStateChangedObservable.add(async (state: any) => {
         setTimeout(() => updateMapPosition(), 500) // Small delay to ensure controllers are initialized
         
-        // Simple dome refresh when entering VR mode
+        // Enhanced dome refresh when entering VR mode
         if (state === 4 && isInitialized && currentId && domes[currentId]) { // IN_XR state
-          console.log('Entered VR mode, applying simple refresh...')
+          console.log('Entered VR mode, applying enhanced refresh...')
           try {
-            // Just mark materials as dirty - minimal performance impact
+            // Force complete material and texture refresh for WebXR entry
             if (scene) {
-              scene.markAllMaterialsAsDirty(1)
+              scene.markAllMaterialsAsDirty(1) // Texture flag
+              scene.markAllMaterialsAsDirty(2) // Light flag
             }
-            console.log('VR entry refresh completed')
+            
+            // Specifically refresh the current dome's material and texture
+            const currentDome = domes[currentId]
+            if (currentDome && currentDome.mesh && currentDome.mesh.material) {
+              const material = currentDome.mesh.material as any
+              if (material) {
+                // Force texture refresh
+                if (material.diffuseTexture) {
+                  material.diffuseTexture.wrapU = material.diffuseTexture.wrapU
+                  material.diffuseTexture.wrapV = material.diffuseTexture.wrapV
+                  if (material.diffuseTexture._prepareRowForTextureGeneration) {
+                    material.diffuseTexture._prepareRowForTextureGeneration()
+                  }
+                }
+                
+                // Mark material as completely dirty
+                if (material.markDirty) {
+                  material.markDirty()
+                }
+                material.markAsDirty()
+              }
+              
+              // Ensure dome is enabled and visible
+              currentDome.setEnabled(true)
+              if (material) {
+                material.alpha = 1
+              }
+            }
+            
+            // Multiple render calls to ensure WebXR synchronization
+            scene.render()
+            setTimeout(() => scene.render(), 16)
+            setTimeout(() => scene.render(), 50)
+            
+            console.log('VR entry enhanced refresh completed')
           } catch (error) {
             console.warn('VR entry refresh error (non-critical):', error)
           }
@@ -1489,6 +1592,11 @@ async function switchNode(targetId: string) {
   }
   
   await switchToNode(targetId)
+  
+  // Additional WebXR dome refresh after switching in VR mode
+  if (isInVRMode()) {
+    setTimeout(() => forceWebXRDomeRefresh(targetId), 100)
+  }
 }
 
 // Function to show initial node without transitions

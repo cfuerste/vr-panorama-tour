@@ -151,56 +151,6 @@ function isInVRMode(): boolean {
          xrExperience.baseExperience.state === 4 // IN_XR state
 }
 
-// Force WebXR rendering refresh for texture updates
-async function forceWebXRRefresh(): Promise<void> {
-  if (!isInVRMode() || !xrExperience) {
-    return
-  }
-  
-  try {
-    console.log('Forcing WebXR refresh for texture update...')
-    
-    // Method 1: Force scene render refresh
-    if (scene) {
-      scene.markAllMaterialsAsDirty(1) // Pass material flag
-      scene.render()
-    }
-    
-    // Method 2: Force WebXR session refresh if available
-    if (xrExperience.baseExperience && xrExperience.baseExperience.sessionManager) {
-      const sessionManager = xrExperience.baseExperience.sessionManager
-      
-      // Force rendering context refresh
-      if (sessionManager.scene) {
-        sessionManager.scene.markAllMaterialsAsDirty(1)
-      }
-    }
-    
-    // Method 3: Force engine refresh
-    if (engine) {
-      engine.wipeCaches(true)
-      
-      // Force multiple renders to ensure WebXR picks up the changes
-      await new Promise<void>(resolve => {
-        let renderCount = 0
-        const forceRender = () => {
-          if (renderCount < 5) { // Increased render count for VR
-            scene.render()
-            renderCount++
-            requestAnimationFrame(forceRender)
-          } else {
-            resolve()
-          }
-        }
-        forceRender()
-      })
-    }
-    
-    console.log('WebXR refresh completed')
-  } catch (error) {
-    console.warn('WebXR refresh error (non-critical):', error)
-  }
-}
 
 
 // Grad -> Radiant
@@ -395,8 +345,8 @@ const PRELOAD_CONFIG = {
   BACKGROUND_BATCH_SIZE: 2,
   // Background loading delay between batches (ms)
   BACKGROUND_DELAY: 500,
-  // Texture sampling mode for faster loading (reduce quality for speed)
-  FAST_SAMPLING_MODE: Texture.BILINEAR_SAMPLINGMODE, // vs TRILINEAR_SAMPLINGMODE for quality
+  // Texture sampling mode - use high quality for VR
+  TEXTURE_SAMPLING_MODE: Texture.TRILINEAR_SAMPLINGMODE, // Better quality for VR
   // Show performance info in console
   SHOW_PERFORMANCE_INFO: true
 }
@@ -497,8 +447,8 @@ async function loadSingleNode(
     
     console.log(`Loading node ${nodeId} (${index + 1}/${total}): ${texturePath}`)
     
-    // Use faster sampling mode for quicker loading
-    const samplingMode = PRELOAD_CONFIG.FAST_SAMPLING_MODE
+    // Use appropriate sampling mode for good quality
+    const samplingMode = PRELOAD_CONFIG.TEXTURE_SAMPLING_MODE
     
     new Texture(texturePath, scene, true, false, samplingMode,
       () => {
@@ -592,8 +542,13 @@ async function startBackgroundLoading() {
   const startTime = performance.now()
   
   while (loadingQueue.length > 0) {
+    // Check if we're in VR mode - use smaller batches and longer delays for VR
+    const isInVR = isInVRMode()
+    const batchSize = isInVR ? 1 : PRELOAD_CONFIG.BACKGROUND_BATCH_SIZE
+    const delay = isInVR ? PRELOAD_CONFIG.BACKGROUND_DELAY * 2 : PRELOAD_CONFIG.BACKGROUND_DELAY
+    
     // Process batch
-    const batch = loadingQueue.splice(0, PRELOAD_CONFIG.BACKGROUND_BATCH_SIZE)
+    const batch = loadingQueue.splice(0, batchSize)
     
     const batchPromises = batch.map(nodeId => {
       const node = NODES[nodeId]
@@ -607,9 +562,9 @@ async function startBackgroundLoading() {
     
     await Promise.all(batchPromises)
     
-    // Small delay between batches to keep the app responsive
+    // Longer delay between batches in VR to keep the app responsive
     if (loadingQueue.length > 0) {
-      await new Promise(resolve => setTimeout(resolve, PRELOAD_CONFIG.BACKGROUND_DELAY))
+      await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
   
@@ -764,8 +719,8 @@ async function switchToNode(nodeId: string) {
     }
     
     if (isInVR) {
-      // In VR mode, use instant switching with WebXR refresh
-      console.log('VR mode detected, using instant dome switching with WebXR refresh')
+      // In VR mode, use optimized instant switching
+      console.log('VR mode detected, using optimized dome switching')
       
       // Hide old dome immediately
       if (domes[oldNodeId]) {
@@ -773,65 +728,29 @@ async function switchToNode(nodeId: string) {
         console.log(`Disabled dome: ${oldNodeId}`)
       }
       
-      // Show new dome with VR-specific refresh sequence
+      // Show new dome with minimal refresh
       if (domes[currentId]) {
-        // Step 1: Enable the dome
         domes[currentId].setEnabled(true)
         
-        // Step 2: Force material refresh
+        // Simple material refresh for VR
         const material = domes[currentId].mesh.material as any
         if (material) {
           material.alpha = 1
-          
-          // VR-specific material refresh techniques
-          try {
-            if (material.markDirty) {
-              material.markDirty()
-            }
-            if (material._mustRebind) {
-              material._mustRebind()
-            }
-            // Force texture update if available
-            if (material.diffuseTexture && material.diffuseTexture.isReady && !material.diffuseTexture.isReady()) {
-              material.diffuseTexture.getScene()?.markAllMaterialsAsDirty(1)
-            }
-          } catch (error) {
-            console.warn('VR material refresh error (non-critical):', error)
+          // Only mark material as dirty - avoid expensive operations
+          if (material.markDirty) {
+            material.markDirty()
           }
         }
         
         console.log(`Enabled dome: ${currentId}`)
         
-        // Step 3: Force WebXR context refresh
-        await forceWebXRRefresh()
-        
-        // Step 4: Additional VR-specific refresh - temporarily disable/enable to force context update
-        try {
-          console.log('Performing VR context refresh cycle...')
-          domes[currentId].setEnabled(false)
-          
-          // Small delay to ensure WebXR processes the disable
-          await new Promise(resolve => setTimeout(resolve, 16)) // ~1 frame at 60fps
-          
-          domes[currentId].setEnabled(true)
-          
-          // Ensure material is still correct after re-enable
-          if (material) {
-            material.alpha = 1
-            // Force one more material refresh after the cycle
-            if (material.markDirty) {
-              material.markDirty()
-            }
-          }
-          
-          // Final verification render
+        // Single lightweight WebXR refresh
+        if (scene) {
+          scene.markAllMaterialsAsDirty(1)
           scene.render()
-          
-          console.log('VR context refresh cycle completed')
-          console.log(`✅ VR dome switch to ${currentId} should now be visible without leaving VR`)
-        } catch (error) {
-          console.warn('VR context refresh cycle error (non-critical):', error)
         }
+        
+        console.log(`✅ VR dome switch to ${currentId} completed`)
       }
       
       // Still do camera rotation if available
@@ -1504,31 +1423,17 @@ async function enableXR() {
       xrExperience.baseExperience.onStateChangedObservable.add(async (state: any) => {
         setTimeout(() => updateMapPosition(), 500) // Small delay to ensure controllers are initialized
         
-        // Force dome refresh when entering VR mode
+        // Simple dome refresh when entering VR mode
         if (state === 4 && isInitialized && currentId && domes[currentId]) { // IN_XR state
-          console.log('Entered VR mode, refreshing current dome texture...')
+          console.log('Entered VR mode, applying simple refresh...')
           try {
-            // Force refresh the current dome in VR context
-            await forceWebXRRefresh()
-            
-            // Additional refresh cycle for newly entered VR context
-            const currentDome = domes[currentId]
-            if (currentDome) {
-              currentDome.setEnabled(false)
-              await new Promise(resolve => setTimeout(resolve, 32)) // 2 frames delay
-              currentDome.setEnabled(true)
-              
-              const material = currentDome.mesh.material as any
-              if (material) {
-                material.alpha = 1
-                if (material.markDirty) {
-                  material.markDirty()
-                }
-              }
+            // Just mark materials as dirty - minimal performance impact
+            if (scene) {
+              scene.markAllMaterialsAsDirty(1)
             }
-            console.log('VR dome refresh completed')
+            console.log('VR entry refresh completed')
           } catch (error) {
-            console.warn('VR dome refresh on state change error (non-critical):', error)
+            console.warn('VR entry refresh error (non-critical):', error)
           }
         }
       })

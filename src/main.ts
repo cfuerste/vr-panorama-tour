@@ -153,51 +153,6 @@ const DEBUG_INVERT_YAW = false
 // DEBUG MODE: Set to true for instant layout preview (no loading screen)
 const LAYOUT_MODE = false  // Change to false for production
 
-// Function to add compass overlay texture to a PhotoDome
-/*
-function addCompassOverlayToDome(dome: PhotoDome, nodeId: string) {
-  // Access the underlying mesh material
-  const originalMaterial = dome.mesh.material as StandardMaterial
-  
-  if (!originalMaterial) {
-    console.warn(`No material found for dome ${nodeId}`)
-    return
-  }
-  
-  // Create a new StandardMaterial with multi-texturing
-  const dualTextureMaterial = new StandardMaterial(`dualTexMat_${nodeId}`, scene)
-  
-  // Copy the original diffuse texture (main panorama)
-  dualTextureMaterial.diffuseTexture = originalMaterial.diffuseTexture
-  
-  // Load compass texture
-  const compassTexture = new Texture('/panos/Windrose.png', scene)
-  compassTexture.hasAlpha = true
-  
-  // Fix orientation - flip V coordinate for proper bottom positioning
-  compassTexture.vOffset = 1  // Shift texture to correct position
-  compassTexture.uOffset = 0.25 // Center horizontally
-  compassTexture.vScale = -1    // Flip vertically to correct orientation
-
-  // Use as opacity texture with low intensity for subtle overlay
-  dualTextureMaterial.opacityTexture = compassTexture
-  dualTextureMaterial.opacityTexture.hasAlpha = true
-  dualTextureMaterial.emissiveColor = new Color3(1, 1, 1) // Very subtle
-  
-  // Enable proper alpha blending
-  dualTextureMaterial.useAlphaFromDiffuseTexture = true
-  
-  // Keep the original properties
-  dualTextureMaterial.alpha = originalMaterial.alpha || 1
-  dualTextureMaterial.backFaceCulling = originalMaterial.backFaceCulling
-  
-  // Apply the new material to the dome mesh
-  dome.mesh.material = dualTextureMaterial
-  
-  console.log(`Added compass overlay to dome ${nodeId}`)
-}
-*/
-
 // Floor plan definitions
 const FLOORS = [
   { id: 'UG', name: 'UG', image: './ui/floorplan_UG.png' },
@@ -990,40 +945,160 @@ function updateMapSelection() {
   buildMap()
 }
 
-async function enableXR() {
-  // Vollständiges WebXR-Default-Experience (UI, Pointer-Selection etc.)
-  xrExperience = await WebXRDefaultExperience.CreateAsync(scene, {
-    disableTeleportation: true, // In PhotoDomes unnatürlich – wir springen zwischen Knoten
-    pointerSelectionOptions: { enablePointerSelectionOnAllControllers: true }
-    // Hand-Tracking ist als Feature inkludiert (per Import aktiviert).
+// Check if WebXR is supported
+async function checkWebXRSupport(): Promise<boolean> {
+  try {
+    if (!navigator.xr) {
+      console.log('❌ WebXR not supported on this device')
+      return false
+    }
+    
+    const isSupported = await navigator.xr.isSessionSupported('immersive-vr')
+    console.log('🥽 WebXR VR support:', isSupported)
+    return isSupported
+  } catch (error) {
+    console.warn('❌ Error checking WebXR support:', error)
+    return false
+  }
+}
+
+// Create VR button for user-initiated VR entry
+function createVRButton(): HTMLButtonElement {
+  const vrButton = document.createElement('button')
+  vrButton.id = 'vrButton'
+  vrButton.textContent = '🥽 Enter VR'
+  vrButton.style.position = 'fixed'
+  vrButton.style.top = '20px'
+  vrButton.style.right = '20px'
+  vrButton.style.zIndex = '1000'
+  vrButton.style.padding = '12px 20px'
+  vrButton.style.backgroundColor = '#007acc'
+  vrButton.style.color = 'white'
+  vrButton.style.border = 'none'
+  vrButton.style.borderRadius = '6px'
+  vrButton.style.cursor = 'pointer'
+  vrButton.style.fontSize = '16px'
+  vrButton.style.fontFamily = 'Arial, sans-serif'
+  vrButton.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
+  vrButton.style.transition = 'all 0.3s ease'
+  
+  vrButton.addEventListener('mouseenter', () => {
+    vrButton.style.backgroundColor = '#005a9e'
+    vrButton.style.transform = 'translateY(-2px)'
   })
   
-  // Set up controller tracking
-  if (xrExperience.input) {
-    xrExperience.input.onControllerAddedObservable.add((controller: any) => {
-      console.log(`Controller added: ${controller.inputSource.handedness}`)
-      
-      if (controller.inputSource.handedness === 'left') {
-        leftController = controller
-        console.log('Left controller detected, will attach map')
-        updateMapPosition()
-      }
+  vrButton.addEventListener('mouseleave', () => {
+    vrButton.style.backgroundColor = '#007acc'
+    vrButton.style.transform = 'translateY(0)'
+  })
+  
+  vrButton.addEventListener('click', () => {
+    enableXR().catch(error => {
+      console.error('❌ Failed to enable VR:', error)
+      vrButton.textContent = '❌ VR Failed'
+      vrButton.style.backgroundColor = '#dc3545'
+      setTimeout(() => {
+        vrButton.textContent = '🥽 Enter VR'
+        vrButton.style.backgroundColor = '#007acc'
+      }, 3000)
+    })
+  })
+  
+  return vrButton
+}
+
+async function enableXR() {
+  try {
+    console.log('🥽 Starting VR initialization...')
+    
+    // Double-check WebXR support before attempting to create session
+    const isSupported = await checkWebXRSupport()
+    if (!isSupported) {
+      throw new Error('WebXR VR sessions are not supported on this device')
+    }
+    
+    // Show loading state
+    const vrButton = document.getElementById('vrButton') as HTMLButtonElement
+    if (vrButton) {
+      vrButton.textContent = '⏳ Starting VR...'
+      vrButton.disabled = true
+    }
+    
+    // Vollständiges WebXR-Default-Experience (UI, Pointer-Selection etc.)
+    xrExperience = await WebXRDefaultExperience.CreateAsync(scene, {
+      disableTeleportation: true, // In PhotoDomes unnatürlich – wir springen zwischen Knoten
+      pointerSelectionOptions: { enablePointerSelectionOnAllControllers: true }
+      // Hand-Tracking ist als Feature inkludiert (per Import aktiviert).
     })
     
-    xrExperience.input.onControllerRemovedObservable.add((controller: any) => {
-      if (controller.inputSource.handedness === 'left') {
-        leftController = null
-        console.log('Left controller removed, map will fallback to viewport')
-        updateMapPosition()
-      }
-    })
-  }
-  
-  // Update map position when entering/exiting XR
-  if (xrExperience.baseExperience) {
-    xrExperience.baseExperience.onStateChangedObservable.add(() => {
-      setTimeout(() => updateMapPosition(), 500) // Small delay to ensure controllers are initialized
-    })
+    console.log('✅ WebXR experience created successfully')
+    
+    // Update button state
+    if (vrButton) {
+      vrButton.textContent = '✅ VR Ready'
+      vrButton.style.backgroundColor = '#28a745'
+    }
+    
+    // Set up controller tracking
+    if (xrExperience.input) {
+      xrExperience.input.onControllerAddedObservable.add((controller: any) => {
+        console.log(`Controller added: ${controller.inputSource.handedness}`)
+        
+        if (controller.inputSource.handedness === 'left') {
+          leftController = controller
+          console.log('Left controller detected, will attach map')
+          updateMapPosition()
+        }
+      })
+      
+      xrExperience.input.onControllerRemovedObservable.add((controller: any) => {
+        if (controller.inputSource.handedness === 'left') {
+          leftController = null
+          console.log('Left controller removed, map will fallback to viewport')
+          updateMapPosition()
+        }
+      })
+    }
+    
+    // Update map position when entering/exiting XR
+    if (xrExperience.baseExperience) {
+      xrExperience.baseExperience.onStateChangedObservable.add(() => {
+        setTimeout(() => updateMapPosition(), 500) // Small delay to ensure controllers are initialized
+      })
+      
+      // Listen for session end to update button
+      xrExperience.baseExperience.onStateChangedObservable.add((state: any) => {
+        if (vrButton) {
+          if (state === 4) { // IN_XR state
+            vrButton.textContent = '🚪 Exit VR'
+            vrButton.style.backgroundColor = '#dc3545'
+          } else if (state === 0) { // NOT_IN_XR state
+            vrButton.textContent = '🥽 Enter VR'
+            vrButton.style.backgroundColor = '#007acc'
+            vrButton.disabled = false
+          }
+        }
+      })
+    }
+    
+  } catch (error) {
+    console.error('❌ Failed to initialize WebXR:', error)
+    
+    // Update button to show error
+    const vrButton = document.getElementById('vrButton') as HTMLButtonElement
+    if (vrButton) {
+      vrButton.textContent = '❌ VR Failed'
+      vrButton.style.backgroundColor = '#dc3545'
+      vrButton.disabled = false
+      
+      // Reset button after a few seconds
+      setTimeout(() => {
+        vrButton.textContent = '🥽 Enter VR'
+        vrButton.style.backgroundColor = '#007acc'
+      }, 3000)
+    }
+    
+    throw error
   }
 }
 
@@ -1160,7 +1235,20 @@ if (LAYOUT_MODE) {
   })
 }
 
-enableXR().catch(console.error)
+// Initialize WebXR support check and VR button
+async function initializeVRSupport() {
+  const isSupported = await checkWebXRSupport()
+  if (isSupported) {
+    const vrButton = createVRButton()
+    document.body.appendChild(vrButton)
+    console.log('✅ VR button added to page')
+  } else {
+    console.log('ℹ️ WebXR not supported, VR button not shown')
+  }
+}
+
+// Initialize VR support after main content is loaded
+initializeVRSupport().catch(console.error)
 
 engine.runRenderLoop(() => scene.render())
 addEventListener('resize', () => engine.resize())

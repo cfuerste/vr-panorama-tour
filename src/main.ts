@@ -409,6 +409,17 @@ function getOptimizedTexturePath(originalPath: string): string {
   return optimizedPath
 }
 
+// Get the original texture path for a node ID
+function getOriginalTexturePath(nodeId: string): string {
+  const node = NODES[nodeId]
+  if (!node) {
+    return FALLBACK_IMAGE
+  }
+  
+  // Try optimized first, then fallback to original
+  return getOptimizedTexturePath(node.image)
+}
+
 // Preload only essential nodes for fast startup
 async function initializeEssentialNodes() {
   console.log('Loading essential nodes for fast startup...')
@@ -761,8 +772,8 @@ async function switchToNode(nodeId: string) {
     }
     
     if (isInVR) {
-      // In VR mode, use enhanced dome switching with proper WebXR refresh
-      console.log('VR mode detected, using enhanced dome switching for WebXR')
+      // In VR mode, use complete dome recreation for WebXR compatibility
+      console.log('VR mode detected, using complete dome recreation for WebXR')
       
       // Hide old dome immediately
       if (domes[oldNodeId]) {
@@ -770,61 +781,42 @@ async function switchToNode(nodeId: string) {
         console.log(`Disabled dome: ${oldNodeId}`)
       }
       
-      // Show new dome with comprehensive WebXR refresh
+      // For WebXR, we need to completely recreate the dome to ensure proper texture binding
       if (domes[currentId]) {
-        domes[currentId].setEnabled(true)
+        const existingDome = domes[currentId]
+        const texturePath = getOriginalTexturePath(currentId)
         
-        // Enhanced material refresh for VR with WebXR compatibility
-        const material = domes[currentId].mesh.material as any
-        if (material) {
-          material.alpha = 1
-          
-          // Force texture binding refresh for WebXR
-          if (material.diffuseTexture) {
-            material.diffuseTexture.wrapU = material.diffuseTexture.wrapU
-            material.diffuseTexture.wrapV = material.diffuseTexture.wrapV
-            material.diffuseTexture._prepareRowForTextureGeneration()
-          }
-          
-          // Mark material as dirty with full refresh
-          if (material.markDirty) {
-            material.markDirty()
-          }
-          material.markAsDirty()
-        }
+        console.log(`Recreating dome for WebXR: ${currentId} with texture: ${texturePath}`)
         
-        console.log(`Enabled dome: ${currentId}`)
+        // Dispose the existing dome
+        existingDome.dispose()
+        delete domes[currentId]
         
-        // Enhanced WebXR scene refresh
+        // Create a new dome with fresh material and texture
+        const newDome = new PhotoDome(`dome_${currentId}_vr`, texturePath, { size: SPHERE_RADIUS * 2 }, scene)
+        newDome.mesh.renderingGroupId = 0
+        newDome.mesh.rotation = camera.rotation.clone()
+        
+        // Store the new dome
+        domes[currentId] = newDome
+        
+        // Enable immediately
+        newDome.setEnabled(true)
+        
+        // Force WebXR refresh
         if (scene) {
-          // Force all materials to refresh
-          scene.markAllMaterialsAsDirty(1) // Texture flag
-          scene.markAllMaterialsAsDirty(2) // Light flag
-          
-          // Force WebXR to refresh its render targets
-          if (xrExperience && xrExperience.baseExperience && xrExperience.baseExperience.sessionManager) {
-            const sessionManager = xrExperience.baseExperience.sessionManager
-            if (sessionManager.scene) {
-              sessionManager.scene.markAllMaterialsAsDirty(1)
-            }
-          }
-          
-          // Multiple render calls to ensure WebXR picks up changes
+          scene.markAllMaterialsAsDirty(1)
           scene.render()
-          setTimeout(() => scene.render(), 16) // Additional render on next frame
-          setTimeout(() => scene.render(), 32) // Additional render after 2 frames
+          setTimeout(() => scene.render(), 16)
         }
         
-        console.log(`✅ VR dome switch to ${currentId} completed with enhanced refresh`)
-        
-        // Additional WebXR-specific dome refresh
-        setTimeout(() => forceWebXRDomeRefresh(currentId), 50)
+        console.log(`✅ VR dome recreated for ${currentId}`)
       }
       
-      // // Still do camera rotation if available
-      // if (linkToTarget) {
-      //   await rotateCameraToTarget(linkToTarget.yaw, linkToTarget.pitch)
-      // }
+      // Still do camera rotation if available
+      if (linkToTarget) {
+        await rotateCameraToTarget(linkToTarget.yaw, linkToTarget.pitch)
+      }
     } else {
       // Desktop mode: use smooth crossfade
       console.log('Desktop mode, using smooth crossfade')

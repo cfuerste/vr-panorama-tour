@@ -788,33 +788,34 @@ class VRPanoramaViewer {
     // Position the caption in front of the user (will be updated each frame)
     this.vrCaptionContainer.position = new Vector3(0, 0.5, -2)
     
-    // Create caption plane - smaller size for tighter fit
-    const captionPlane = MeshBuilder.CreatePlane('vrCaption', { width: 0.8, height: 0.3 }, this.scene)
+    // Create caption plane - optimized for Meta Quest 3
+    const captionPlane = MeshBuilder.CreatePlane('vrCaption', { width: 1.0, height: 0.4 }, this.scene)
     captionPlane.parent = this.vrCaptionContainer
     captionPlane.billboardMode = Mesh.BILLBOARDMODE_ALL // Always face the user
     
-    // Create caption UI with higher resolution for crisp text
-    this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane, 512, 128)
+    // Create caption UI with high resolution for Meta Quest 3
+    this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane, 1024, 512)
     
     // Create background
-    const background = new Rectangle()
-    background.background = 'rgba(0, 0, 0, 0.6)'
-    background.cornerRadius = 8
+    const background = new Rectangle('vrCaptionBackground')
+    background.background = 'rgba(0, 0, 0, 0.8)'
+    background.cornerRadius = 10
     background.thickness = 0  // Remove frame border
     background.adaptWidthToChildren = true
     background.adaptHeightToChildren = true
-    background.paddingTopInPixels = 8
-    background.paddingBottomInPixels = 8
-    background.paddingLeftInPixels = 12
-    background.paddingRightInPixels = 12
+    background.paddingTopInPixels = 12
+    background.paddingBottomInPixels = 12
+    background.paddingLeftInPixels = 16
+    background.paddingRightInPixels = 16
     this.vrCaptionUI.addControl(background)
     
     // Create text
-    const captionText = new TextBlock()
+    const captionText = new TextBlock('vrCaptionText')
     captionText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}`
     captionText.color = 'white'
-    captionText.fontSize = 24
+    captionText.fontSize = 32
     captionText.fontFamily = 'Arial'
+    captionText.fontWeight = 'bold'
     captionText.textWrapping = true
     captionText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
     captionText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
@@ -829,17 +830,21 @@ class VRPanoramaViewer {
   private updateVRCaptionPosition(): void {
     if (!this.vrCaptionContainer || !this.isVRActive) return
     
-    // Get the active camera (VR camera or regular camera)
-    const camera = this.scene.activeCamera || this.camera
+    // Use WebXR camera when available for better Meta Quest 3 tracking
+    let camera = this.scene.activeCamera
+    if (this.xrHelper && this.xrHelper.baseExperience.camera) {
+      camera = this.xrHelper.baseExperience.camera
+    }
+    if (!camera) camera = this.camera
     if (!camera) return
     
     // Calculate position in front of the camera
     const cameraDirection = camera.getForwardRay().direction
     const cameraPosition = camera.position
     
-    // Position the caption 2 meters in front of the camera, slightly below eye level
-    const distance = 2.0
-    const heightOffset = 1.0 // Slightly below eye level
+    // Position the caption closer for better readability in Meta Quest 3
+    const distance = 1.5
+    const heightOffset = 0.2 // Slightly below eye level for comfortable reading
     
     this.vrCaptionContainer.position.x = cameraPosition.x + cameraDirection.x * distance
     this.vrCaptionContainer.position.y = cameraPosition.y + cameraDirection.y * distance + heightOffset
@@ -866,13 +871,10 @@ class VRPanoramaViewer {
   private updateVRCaption(): void {
     if (!this.vrCaptionUI || !this.isVRActive) return
     
-    // Find the text block and update it
-    const background = this.vrCaptionUI.getControlByName('') as Rectangle
-    if (background && background.children.length > 0) {
-      const captionText = background.children[0] as TextBlock
-      if (captionText) {
-        captionText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}`
-      }
+    // Find the text block by name and update it
+    const captionText = this.vrCaptionUI.getControlByName('vrCaptionText') as TextBlock
+    if (captionText) {
+      captionText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}`
     }
   }
 

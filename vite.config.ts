@@ -1,8 +1,23 @@
 import { defineConfig } from 'vite'
 import mkcert from 'vite-plugin-mkcert'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [mkcert()],
   server: { https: true, host: true },
-  base: '/vr-panorama-tour/'
-})
+  base: command === 'build' ? '/vr-panorama-tour/' : '/',
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          babylon: ['@babylonjs/core'],
+          babylonGui: ['@babylonjs/gui'],
+          babylonLoaders: ['@babylonjs/loaders']
+        }
+      }
+    }
+  },
+  optimizeDeps: {
+    include: ['@babylonjs/core', '@babylonjs/gui', '@babylonjs/loaders']
+  }
+}))

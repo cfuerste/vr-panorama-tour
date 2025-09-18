@@ -263,15 +263,19 @@ class VRPanoramaViewer {
     currentPanorama.links.forEach(link => {
       const targetPanorama = this.panoramaData[link.to]
       if (targetPanorama) {
-        // Add different quality versions
+        // Add different quality versions with proper absolute URLs
         const baseImageName = targetPanorama.image.replace('.jpg', '')
-        connectedImages.push(`panos/optimized_natural/${baseImageName}_std.jpg`)
+        const imagePath = `panos/optimized_natural/`
         
-        // Also preload mobile version for future use
-        connectedImages.push(`panos/optimized_natural/${baseImageName}_mobile.jpg`)
+        // Construct complete URLs with origin
+        const origin = window.location.origin
+        const stdUrl = `${origin}${basePath}${imagePath}${baseImageName}_std.jpg`
+        const mobileUrl = `${origin}${basePath}${imagePath}${baseImageName}_mobile.jpg`
+        const hrUrl = `${origin}${basePath}${imagePath}${baseImageName}.jpg`
         
-        // And high-res version for VR
-        connectedImages.push(`panos/optimized_natural/${baseImageName}.jpg`)
+        connectedImages.push(stdUrl)
+        connectedImages.push(mobileUrl)
+        connectedImages.push(hrUrl)
       }
     })
 
@@ -280,7 +284,7 @@ class VRPanoramaViewer {
       
       this.preloader.startPreloading(
         connectedImages,
-        basePath,
+        '', // Empty base path since we already have complete URLs
         (progress, total) => {
           console.log(`Preload progress: ${progress}/${total}`)
           // Update UI if needed

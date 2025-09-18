@@ -49,7 +49,8 @@ export class PanoramaPreloader {
 
         for (const imageUrl of imageUrls) {
           try {
-            const fullUrl = basePath + imageUrl;
+            // URLs are now complete, just use them directly
+            const fullUrl = imageUrl;
             
             // Skip if already cached
             if (imageCache.has(fullUrl)) {

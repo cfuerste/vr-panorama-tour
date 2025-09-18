@@ -61,6 +61,7 @@ class VRPanoramaViewer {
   private isVRActive = false
   private infoText: TextBlock | null = null
   private enterVRButton: Button | null = null
+  private desktopUI: AdvancedDynamicTexture | null = null
   private preloader: PanoramaPreloader
 
   constructor(canvas: HTMLCanvasElement) {
@@ -441,7 +442,8 @@ class VRPanoramaViewer {
     const textBlock = new TextBlock()
     textBlock.text = text
     textBlock.color = 'white'
-    textBlock.fontSize = 50
+    textBlock.fontSize = 55
+    textBlock.fontWeight = 'bold'
     textBlock.fontFamily = 'Arial'
     textBlock.textWrapping = true
     textBlock.resizeToFit = true
@@ -529,9 +531,9 @@ class VRPanoramaViewer {
   private onEnterVR(): void {
     console.log('VR mode activated - refreshing photodome rendering')
     
-    // Hide VR enter button when in VR mode
-    if (this.enterVRButton) {
-      this.enterVRButton.isVisible = false
+    // Hide entire desktop UI when in VR mode
+    if (this.desktopUI?.layer) {
+      this.desktopUI.layer.isEnabled = false
     }
     
     // Force photodome refresh for VR
@@ -574,9 +576,9 @@ class VRPanoramaViewer {
     console.log('Exiting VR mode')
     this.disposeFloorplanUI()
     
-    // Show VR enter button when exiting VR mode
-    if (this.enterVRButton) {
-      this.enterVRButton.isVisible = true
+    // Show desktop UI when exiting VR mode
+    if (this.desktopUI?.layer) {
+      this.desktopUI.layer.isEnabled = true
     }
     
     // Re-optimize materials for desktop
@@ -587,7 +589,7 @@ class VRPanoramaViewer {
 
   private setupUI(): void {
     // Create desktop UI
-    const advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI('UI')
+    this.desktopUI = AdvancedDynamicTexture.CreateFullscreenUI('UI')
     
     // VR Enter button
     this.enterVRButton = Button.CreateSimpleButton('enterVR', 'Enter VR Mode')
@@ -607,7 +609,7 @@ class VRPanoramaViewer {
     
     // Only show VR button if WebXR is supported
     if (this.xrHelper) {
-      advancedTexture.addControl(this.enterVRButton)
+      this.desktopUI.addControl(this.enterVRButton)
     }
 
     // Add panorama info panel
@@ -622,7 +624,7 @@ class VRPanoramaViewer {
     infoPanel.left = '20px'
     infoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
     infoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-    advancedTexture.addControl(infoPanel)
+    this.desktopUI.addControl(infoPanel)
     
     const infoText = new TextBlock()
     infoText.text = `\nCurrent Location:\n${this.getCurrentPanoramaDisplayName()}`
@@ -644,7 +646,7 @@ class VRPanoramaViewer {
     instructionsPanel.left = '20px'
     instructionsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
     instructionsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-    advancedTexture.addControl(instructionsPanel)
+    this.desktopUI.addControl(instructionsPanel)
     
     const instructionsText = new TextBlock()
     instructionsText.text = 'Desktop: Click and drag to look around\nVR: Use hand tracking or controllers\nto interact with red hotspots'

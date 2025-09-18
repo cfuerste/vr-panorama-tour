@@ -1,24 +1,116 @@
 // Panorama Preloader Manager
-import type { PreloadRequest, PreloadResponse } from './panoramaPreloader.worker'
-
 interface PreloadedImage {
   url: string
   data: ArrayBuffer
   objectUrl?: string
 }
 
+interface PreloadRequest {
+  type: 'PRELOAD_IMAGES'
+  images: string[]
+  basePath: string
+}
+
+interface PreloadResponse {
+  type: 'PRELOAD_COMPLETE' | 'PRELOAD_PROGRESS' | 'PRELOAD_ERROR'
+  imageUrl?: string
+  imageData?: ArrayBuffer
+  error?: string
+  progress?: number
+  total?: number
+}
+
 export class PanoramaPreloader {
   private worker: Worker
+  private workerBlobUrl: string
   private preloadedImages = new Map<string, PreloadedImage>()
   private onProgressCallback?: (progress: number, total: number) => void
   private onCompleteCallback?: () => void
 
   constructor() {
-    // Create worker from the worker file
-    this.worker = new Worker(
-      new URL('./panoramaPreloader.worker.ts', import.meta.url),
-      { type: 'module' }
-    )
+    // Create worker inline to avoid import.meta.url issues in GitHub Actions
+    const workerScript = `
+      // Cache for loaded images
+      const imageCache = new Map();
+
+      self.addEventListener('message', async (event) => {
+        const { data } = event;
+
+        if (data.type === 'PRELOAD_IMAGES') {
+          await preloadImages(data.images, data.basePath);
+        }
+      });
+
+      async function preloadImages(imageUrls, basePath) {
+        const total = imageUrls.length;
+        let completed = 0;
+
+        console.log('[Worker] Starting preload of ' + total + ' images');
+
+        for (const imageUrl of imageUrls) {
+          try {
+            const fullUrl = basePath + imageUrl;
+            
+            // Skip if already cached
+            if (imageCache.has(fullUrl)) {
+              completed++;
+              postMessage({
+                type: 'PRELOAD_PROGRESS',
+                imageUrl: fullUrl,
+                progress: completed,
+                total
+              });
+              continue;
+            }
+
+            console.log('[Worker] Preloading: ' + fullUrl);
+            
+            // Fetch the image
+            const response = await fetch(fullUrl);
+            if (!response.ok) {
+              throw new Error('Failed to fetch ' + fullUrl + ': ' + response.status);
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            
+            // Cache the image data
+            imageCache.set(fullUrl, arrayBuffer);
+            
+            completed++;
+
+            // Send progress update
+            postMessage({
+              type: 'PRELOAD_PROGRESS',
+              imageUrl: fullUrl,
+              imageData: arrayBuffer,
+              progress: completed,
+              total
+            });
+
+          } catch (error) {
+            console.error('[Worker] Failed to preload ' + imageUrl + ':', error);
+            
+            postMessage({
+              type: 'PRELOAD_ERROR',
+              imageUrl: imageUrl,
+              error: error.message || 'Unknown error'
+            });
+          }
+        }
+
+        console.log('[Worker] Preload complete: ' + completed + '/' + total + ' images');
+        
+        postMessage({
+          type: 'PRELOAD_COMPLETE',
+          progress: completed,
+          total
+        });
+      }
+    `;
+
+    const blob = new Blob([workerScript], { type: 'application/javascript' });
+    this.workerBlobUrl = URL.createObjectURL(blob);
+    this.worker = new Worker(this.workerBlobUrl);
 
     this.worker.addEventListener('message', this.handleWorkerMessage.bind(this))
     this.worker.addEventListener('error', this.handleWorkerError.bind(this))
@@ -109,5 +201,6 @@ export class PanoramaPreloader {
     
     this.preloadedImages.clear()
     this.worker.terminate()
+    URL.revokeObjectURL(this.workerBlobUrl)
   }
 }

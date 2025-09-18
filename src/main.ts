@@ -169,14 +169,41 @@ class VRPanoramaViewer {
         {
           resolution: isVR ? 128 : 64, // Higher resolution for VR
           size: 1000,
-          useDirectMapping: false
+          useDirectMapping: false, // Keep original mapping for correct orientation
+          halfDomeMode: false
         },
         this.scene
       )
 
-      // Optimize photodome material for performance
+      // Fix for VR headsets - ensure proper material configuration
       if (this.currentPhotoDome.material) {
-        this.currentPhotoDome.material.freeze() // Freeze material for better performance
+        // Don't freeze the material immediately in VR to allow proper setup
+        if (!this.isVRActive) {
+          this.currentPhotoDome.material.freeze()
+        }
+        
+        // Ensure backface culling is disabled for proper inside-out rendering
+        this.currentPhotoDome.material.backFaceCulling = false
+        
+        // Force texture refresh for VR
+        if (this.isVRActive && this.currentPhotoDome.material.diffuseTexture) {
+          this.currentPhotoDome.material.diffuseTexture.updateSamplingMode(1) // Linear sampling
+        }
+      }
+
+      // For VR compatibility without changing orientation
+      if (this.currentPhotoDome.mesh) {
+        // Ensure proper inside-out rendering without flipping faces
+        this.currentPhotoDome.mesh.material = this.currentPhotoDome.material
+        
+        // Only adjust for VR if needed, without affecting desktop orientation
+        if (this.isVRActive) {
+          this.currentPhotoDome.mesh.flipFaces(false) // Don't flip faces to maintain orientation
+          
+          // If you need to adjust the starting rotation to match the original view,
+          // you can apply a rotation here:
+          // this.currentPhotoDome.mesh.rotation.y = 0 // Adjust as needed
+        }
       }
 
       this.currentPanorama = panoramaId
@@ -384,12 +411,12 @@ class VRPanoramaViewer {
             case WebXRState.ENTERING_XR:
               console.log('Entering VR')
               this.isVRActive = true
-              this.setupFloorplanUI()
+              this.onEnterVR()
               break
             case WebXRState.EXITING_XR:
               console.log('Exiting VR')
               this.isVRActive = false
-              this.disposeFloorplanUI()
+              this.onExitVR()
               break
           }
         })
@@ -407,6 +434,55 @@ class VRPanoramaViewer {
       }
     } catch (error) {
       console.warn('WebXR not supported or failed to initialize:', error)
+    }
+  }
+
+  private onEnterVR(): void {
+    console.log('VR mode activated - refreshing photodome rendering')
+    
+    // Force photodome refresh for VR
+    if (this.currentPhotoDome) {
+      // Unfreeze material to allow updates
+      if (this.currentPhotoDome.material && this.currentPhotoDome.material.isFrozen) {
+        this.currentPhotoDome.material.unfreeze()
+      }
+      
+      // Ensure proper material settings for VR
+      if (this.currentPhotoDome.material) {
+        this.currentPhotoDome.material.backFaceCulling = false
+        
+        // Force texture update
+        if (this.currentPhotoDome.material.diffuseTexture) {
+          this.currentPhotoDome.material.diffuseTexture.updateSamplingMode(1)
+          // Force texture to reload
+          this.currentPhotoDome.material.diffuseTexture.getInternalTexture()?.generateMipMaps
+        }
+      }
+      
+      // Ensure mesh is properly configured for VR without affecting orientation
+      if (this.currentPhotoDome.mesh) {
+        // Don't flip faces to maintain correct orientation
+        this.currentPhotoDome.mesh.flipFaces(false)
+        
+        // Ensure the material is properly applied
+        this.currentPhotoDome.mesh.material = this.currentPhotoDome.material
+      }
+    }
+    
+    // Setup floorplan UI
+    this.setupFloorplanUI()
+    
+    // Force a scene refresh
+    this.scene.render()
+  }
+
+  private onExitVR(): void {
+    console.log('Exiting VR mode')
+    this.disposeFloorplanUI()
+    
+    // Re-optimize materials for desktop
+    if (this.currentPhotoDome?.material && !this.currentPhotoDome.material.isFrozen) {
+      this.currentPhotoDome.material.freeze()
     }
   }
 

@@ -165,7 +165,7 @@ class VRPanoramaViewer {
     if (isMobile && !isVR) {
       imageSuffix = '_mobile.jpg' // Lower resolution for mobile
     } else if (isVR) {
-      imageSuffix = '.jpg' // Highest resolution for VR
+      imageSuffix = '_hq.jpg' // Highest resolution for VR
     }
     
     const basePath = import.meta.env.BASE_URL
@@ -368,7 +368,7 @@ class VRPanoramaViewer {
       hotspot.actionManager.registerAction(new ExecuteCodeAction(
         ActionManager.OnPointerOverTrigger,
         () => {
-          material.emissiveColor = new Color3(0.8, 0.3, 0.3)
+          material.emissiveColor = new Color3(0.3, 0.3, 0.3)
           // Add haptic feedback for VR controllers
           if (this.isVRActive && this.xrHelper?.input) {
             this.xrHelper.input.controllers.forEach(controller => {

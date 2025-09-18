@@ -110,6 +110,22 @@ foreach ($file in $imageFiles) {
             if ($mobileProcess.ExitCode -eq 0) {
                 Write-Host "  Mobile version created (natural brightness)" -ForegroundColor Green
             }
+            
+            # Copy original image with _hq suffix (unprocessed original)
+            $hqOriginalFileName = $file.BaseName + "_hq.jpg"
+            $hqOriginalFile = Join-Path $OutputPath $hqOriginalFileName
+            
+            try {
+                Copy-Item -Path $file.FullName -Destination $hqOriginalFile -Force
+                if (Test-Path $hqOriginalFile) {
+                    Write-Host "  Original HQ copy created (unprocessed)" -ForegroundColor Green
+                } else {
+                    Write-Host "  Failed to copy original HQ version" -ForegroundColor Red
+                }
+            }
+            catch {
+                Write-Host "  Error copying original HQ version: $($_.Exception.Message)" -ForegroundColor Red
+            }
         } else {
             Write-Host "  Failed to optimize $fileName" -ForegroundColor Red
         }
@@ -142,7 +158,8 @@ Write-Host "- Subtle sharpening for clarity" -ForegroundColor White
 Write-Host "- Progressive JPEG for better loading" -ForegroundColor White
 
 Write-Host ""
-Write-Host "Created 3 quality levels with natural brightness:" -ForegroundColor Cyan
+Write-Host "Created 4 quality levels with natural brightness:" -ForegroundColor Cyan
 Write-Host "1. High Quality (6K): For current panorama" -ForegroundColor White
 Write-Host "2. Standard (4K): For near panoramas" -ForegroundColor White
 Write-Host "3. Mobile (2K): For distant panoramas" -ForegroundColor White
+Write-Host "4. Original HQ (_hq): Unprocessed original copy" -ForegroundColor White

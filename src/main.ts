@@ -64,6 +64,8 @@ class VRPanoramaViewer {
   private desktopUI: AdvancedDynamicTexture | null = null
   private vrCaptionContainer: TransformNode | null = null
   private vrCaptionUI: AdvancedDynamicTexture | null = null
+  private vrCaptionRenderObserver: any = null
+  private isVREmulationMode = false
   private preloader: PanoramaPreloader
 
   constructor(canvas: HTMLCanvasElement) {
@@ -101,6 +103,9 @@ class VRPanoramaViewer {
 
     // Initialize preloader
     this.preloader = new PanoramaPreloader()
+
+    // Setup keyboard controls for VR emulation
+    this.setupVREmulationControls()
 
     this.init()
   }
@@ -684,11 +689,25 @@ class VRPanoramaViewer {
     // Create floorplan container
     this.floorplanContainer = new TransformNode('floorplanContainer', this.scene)
     
+    // Position floorplan in VR space
+    if (this.isVREmulationMode) {
+      // In emulation mode, position floorplan to the left side where it's visible
+      this.floorplanContainer.position = new Vector3(-1.5, 0, -1)
+      this.floorplanContainer.rotation = new Vector3(0, Math.PI / 4, 0)
+    } else {
+      // In real VR, it will be attached to controller
+      this.floorplanContainer.position = new Vector3(0, 0, 0)
+    }
+    
     // Create floorplan plane
     const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { size: 0.3 }, this.scene)
     floorplanPlane.parent = this.floorplanContainer
-    floorplanPlane.position = new Vector3(-0.2, 0, 0.1)
-    floorplanPlane.rotation = new Vector3(0, Math.PI / 6, 0)
+    
+    if (!this.isVREmulationMode) {
+      // Only offset when attached to controller
+      floorplanPlane.position = new Vector3(-0.2, 0, 0.1)
+      floorplanPlane.rotation = new Vector3(0, Math.PI / 6, 0)
+    }
 
     // Load appropriate floorplan image
     const currentFloor = this.panoramaData[this.currentPanorama]?.floor || 'EG'
@@ -708,8 +727,8 @@ class VRPanoramaViewer {
     floorplanImage.stretch = Image.STRETCH_UNIFORM
     background.addControl(floorplanImage)
 
-    // Try to attach to any existing left controllers
-    if (this.xrHelper?.input.controllers) {
+    // Only try to attach to controllers in real VR mode
+    if (!this.isVREmulationMode && this.xrHelper?.input.controllers) {
       this.xrHelper.input.controllers.forEach(controller => {
         if (controller.motionController?.handness === 'left') {
           console.log('Found existing left controller, attaching floorplan')
@@ -766,42 +785,74 @@ class VRPanoramaViewer {
     // Create VR caption container
     this.vrCaptionContainer = new TransformNode('vrCaptionContainer', this.scene)
     
-    // Position the caption in front of the user
+    // Position the caption in front of the user (will be updated each frame)
     this.vrCaptionContainer.position = new Vector3(0, 0.5, -2)
     
-    // Create caption plane
-    const captionPlane = MeshBuilder.CreatePlane('vrCaption', { size: 1.5 }, this.scene)
+    // Create caption plane - smaller size for tighter fit
+    const captionPlane = MeshBuilder.CreatePlane('vrCaption', { width: 0.8, height: 0.3 }, this.scene)
     captionPlane.parent = this.vrCaptionContainer
     captionPlane.billboardMode = Mesh.BILLBOARDMODE_ALL // Always face the user
     
-    // Create caption UI
-    this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane)
+    // Create caption UI with higher resolution for crisp text
+    this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane, 512, 128)
     
     // Create background
     const background = new Rectangle()
-    background.background = 'rgba(0, 0, 0, 0.7)'
-    background.cornerRadius = 15
+    background.background = 'rgba(0, 0, 0, 0.6)'
+    background.cornerRadius = 8
+    background.thickness = 0  // Remove frame border
     background.adaptWidthToChildren = true
     background.adaptHeightToChildren = true
-    background.paddingTopInPixels = 15
-    background.paddingBottomInPixels = 15
-    background.paddingLeftInPixels = 25
-    background.paddingRightInPixels = 25
+    background.paddingTopInPixels = 8
+    background.paddingBottomInPixels = 8
+    background.paddingLeftInPixels = 12
+    background.paddingRightInPixels = 12
     this.vrCaptionUI.addControl(background)
     
     // Create text
     const captionText = new TextBlock()
     captionText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}`
     captionText.color = 'white'
-    captionText.fontSize = 48
+    captionText.fontSize = 24
     captionText.fontFamily = 'Arial'
     captionText.textWrapping = true
     captionText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
     captionText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
     background.addControl(captionText)
+    
+    // Register update function to keep caption in front of camera
+    this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
+      this.updateVRCaptionPosition()
+    })
+  }
+
+  private updateVRCaptionPosition(): void {
+    if (!this.vrCaptionContainer || !this.isVRActive) return
+    
+    // Get the active camera (VR camera or regular camera)
+    const camera = this.scene.activeCamera || this.camera
+    if (!camera) return
+    
+    // Calculate position in front of the camera
+    const cameraDirection = camera.getForwardRay().direction
+    const cameraPosition = camera.position
+    
+    // Position the caption 2 meters in front of the camera, slightly below eye level
+    const distance = 2.0
+    const heightOffset = 1.0 // Slightly below eye level
+    
+    this.vrCaptionContainer.position.x = cameraPosition.x + cameraDirection.x * distance
+    this.vrCaptionContainer.position.y = cameraPosition.y + cameraDirection.y * distance + heightOffset
+    this.vrCaptionContainer.position.z = cameraPosition.z + cameraDirection.z * distance
   }
 
   private disposeVRCaption(): void {
+    // Remove render observer
+    if (this.vrCaptionRenderObserver) {
+      this.scene.unregisterBeforeRender(this.vrCaptionRenderObserver)
+      this.vrCaptionRenderObserver = null
+    }
+    
     if (this.vrCaptionUI) {
       this.vrCaptionUI.dispose()
       this.vrCaptionUI = null
@@ -825,10 +876,130 @@ class VRPanoramaViewer {
     }
   }
 
+  private setupVREmulationControls(): void {
+    // Add keyboard event listener for VR emulation
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'v' || event.key === 'V') {
+        this.toggleVREmulation()
+      }
+    })
+
+    console.log('VR Emulation Controls:')
+    console.log('Press "V" key to toggle VR emulation mode')
+  }
+
+  private toggleVREmulation(): void {
+    this.isVREmulationMode = !this.isVREmulationMode
+    
+    if (this.isVREmulationMode) {
+      console.log('🥽 VR Emulation Mode: ON')
+      this.enterVREmulation()
+    } else {
+      console.log('🖥️ VR Emulation Mode: OFF')
+      this.exitVREmulation()
+    }
+  }
+
+  private enterVREmulation(): void {
+    console.log('Entering VR emulation mode')
+    
+    // Simulate VR mode without actual WebXR
+    this.isVRActive = true
+    
+    // Hide desktop UI
+    if (this.desktopUI) {
+      this.desktopUI.rootContainer.isVisible = false
+    }
+    
+    // Setup VR-specific UI
+    this.setupVRCaption()
+    this.setupFloorplanUI()
+    
+    // Show emulation info
+    this.showEmulationInfo()
+    
+    // Force photodome refresh for VR
+    if (this.currentPhotoDome) {
+      if (this.currentPhotoDome.material && this.currentPhotoDome.material.isFrozen) {
+        this.currentPhotoDome.material.unfreeze()
+      }
+      
+      // VR-specific material setup
+      if (this.currentPhotoDome.material) {
+        this.currentPhotoDome.material.backFaceCulling = false
+        this.currentPhotoDome.material.maxSimultaneousLights = 2
+      }
+      
+      if (this.currentPhotoDome.mesh) {
+        this.currentPhotoDome.mesh.flipFaces(false)
+        this.currentPhotoDome.mesh.material = this.currentPhotoDome.material
+      }
+    }
+    
+    this.scene.render()
+  }
+
+  private exitVREmulation(): void {
+    console.log('Exiting VR emulation mode')
+    
+    // Reset VR state
+    this.isVRActive = false
+    
+    // Show desktop UI
+    if (this.desktopUI) {
+      this.desktopUI.rootContainer.isVisible = true
+    }
+    
+    // Clean up VR-specific UI
+    this.disposeVRCaption()
+    this.disposeFloorplanUI()
+    this.disposeEmulationInfo()
+    
+    // Re-optimize materials for desktop
+    if (this.currentPhotoDome?.material && !this.currentPhotoDome.material.isFrozen) {
+      this.currentPhotoDome.material.freeze()
+    }
+  }
+
+  private showEmulationInfo(): void {
+    // Create emulation info overlay
+    const emulationInfo = new TextBlock()
+    emulationInfo.text = '🥽 VR EMULATION MODE\nPress "V" to exit\n\nFloorplan visible in scene\nVR Caption displayed'
+    emulationInfo.color = 'yellow'
+    emulationInfo.fontSize = 24
+    emulationInfo.fontFamily = 'Arial'
+    emulationInfo.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT
+    emulationInfo.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    emulationInfo.top = '20px'
+    emulationInfo.left = '-20px'
+    emulationInfo.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT
+    emulationInfo.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    
+    // Create a separate UI for emulation info that stays visible
+    const emulationUI = AdvancedDynamicTexture.CreateFullscreenUI('EmulationUI')
+    emulationUI.addControl(emulationInfo)
+    
+    // Store reference for cleanup
+    ;(emulationInfo as any)._emulationUI = emulationUI
+    ;(this as any)._emulationInfo = emulationInfo
+  }
+
+  private disposeEmulationInfo(): void {
+    const emulationInfo = (this as any)._emulationInfo
+    if (emulationInfo) {
+      const emulationUI = (emulationInfo as any)._emulationUI
+      if (emulationUI) {
+        emulationUI.dispose()
+      }
+      ;(this as any)._emulationInfo = null
+    }
+  }
+
   public dispose(): void {
     this.clearScene()
     this.disposeFloorplanUI()
     this.disposeVRCaption()
+    this.disposeEmulationInfo()
     this.preloader.dispose()
     this.scene.dispose()
     this.engine.dispose()

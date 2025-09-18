@@ -121,8 +121,11 @@ class VRPanoramaViewer {
 
   private async loadPanoramaData(): Promise<void> {
     try {
-      console.log('Loading panorama data from: /json/Panoramane_Standorte.json')
-      const response = await fetch('/json/Panoramane_Standorte.json')
+      // Use Vite's base URL to handle both dev and production paths
+      const basePath = import.meta.env.BASE_URL
+      const jsonPath = `${basePath}json/Panoramane_Standorte.json`
+      console.log('Loading panorama data from:', jsonPath)
+      const response = await fetch(jsonPath)
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
@@ -156,7 +159,8 @@ class VRPanoramaViewer {
       imageSuffix = '.jpg' // Highest resolution for VR
     }
     
-    const imagePath = `/panos/optimized_natural/${panoramaInfo.image.replace('.jpg', imageSuffix)}`
+    const basePath = import.meta.env.BASE_URL
+    const imagePath = `${basePath}panos/optimized_natural/${panoramaInfo.image.replace('.jpg', imageSuffix)}`
     
     try {
       this.currentPhotoDome = new PhotoDome(
@@ -497,7 +501,8 @@ class VRPanoramaViewer {
 
     // Load appropriate floorplan image
     const currentFloor = this.panoramaData[this.currentPanorama]?.floor || 'EG'
-    const floorplanPath = `/ui/floorplan_${currentFloor}.png`
+    const basePath = import.meta.env.BASE_URL
+    const floorplanPath = `${basePath}ui/floorplan_${currentFloor}.png`
     
     this.floorplanUI = AdvancedDynamicTexture.CreateForMesh(floorplanPlane)
     

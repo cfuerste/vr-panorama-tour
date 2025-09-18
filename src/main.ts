@@ -14,6 +14,8 @@ import { Tools } from '@babylonjs/core/Misc/tools'
 import { AdvancedDynamicTexture, Control, TextBlock, Button, Rectangle, Image } from '@babylonjs/gui'
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
+import { PanoramaPreloader } from './panoramaPreloader'
+
 
 // Import WebXR features
 import '@babylonjs/core/XR/features/WebXRHandTracking'
@@ -58,6 +60,7 @@ class VRPanoramaViewer {
   private floorplanContainer: TransformNode | null = null
   private isVRActive = false
   private infoText: TextBlock | null = null
+  private preloader: PanoramaPreloader
 
   constructor(canvas: HTMLCanvasElement) {
     // Initialize engine with VR optimizations
@@ -92,6 +95,9 @@ class VRPanoramaViewer {
     const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene)
     light.intensity = 1
 
+    // Initialize preloader
+    this.preloader = new PanoramaPreloader()
+
     this.init()
   }
 
@@ -101,6 +107,9 @@ class VRPanoramaViewer {
     
     // Load initial panorama
     await this.loadPanorama(this.currentPanorama)
+    
+    // Start preloading connected panoramas
+    this.startBackgroundPreloading()
     
     // Setup WebXR
     await this.setupWebXR()
@@ -162,10 +171,16 @@ class VRPanoramaViewer {
     const basePath = import.meta.env.BASE_URL
     const imagePath = `${basePath}panos/optimized_natural/${panoramaInfo.image.replace('.jpg', imageSuffix)}`
     
+    // Check if image is preloaded
+    const preloadedUrl = this.preloader.getPreloadedImage(imagePath)
+    const finalImagePath = preloadedUrl || imagePath
+    
+    console.log(`Loading panorama: ${panoramaId}`, preloadedUrl ? '(preloaded)' : '(network)')
+    
     try {
       this.currentPhotoDome = new PhotoDome(
         `dome_${panoramaId}`,
-        imagePath,
+        finalImagePath,
         {
           resolution: isVR ? 128 : 64, // Higher resolution for VR
           size: 1000,
@@ -217,9 +232,72 @@ class VRPanoramaViewer {
       // Update info text
       this.updateInfoText()
 
+      // Preload connected panoramas after loading current one
+      this.preloadConnectedPanoramas(panoramaId)
+
       console.log('Loaded panorama:', panoramaId, 'with resolution:', imageSuffix)
     } catch (error) {
       console.error('Failed to load panorama:', panoramaId, error)
+    }
+  }
+
+  private startBackgroundPreloading(): void {
+    if (!this.panoramaData || Object.keys(this.panoramaData).length === 0) {
+      console.log('No panorama data available for preloading')
+      return
+    }
+
+    // Get all panorama images that are connected to current panorama
+    this.preloadConnectedPanoramas(this.currentPanorama)
+  }
+
+  private preloadConnectedPanoramas(panoramaId: string): void {
+    const currentPanorama = this.panoramaData[panoramaId]
+    if (!currentPanorama) return
+
+    // Get connected panorama images
+    const connectedImages: string[] = []
+    const basePath = import.meta.env.BASE_URL
+
+    // Add images from current panorama's links
+    currentPanorama.links.forEach(link => {
+      const targetPanorama = this.panoramaData[link.to]
+      if (targetPanorama) {
+        // Add different quality versions
+        const baseImageName = targetPanorama.image.replace('.jpg', '')
+        connectedImages.push(`panos/optimized_natural/${baseImageName}_std.jpg`)
+        
+        // Also preload mobile version for future use
+        connectedImages.push(`panos/optimized_natural/${baseImageName}_mobile.jpg`)
+        
+        // And high-res version for VR
+        connectedImages.push(`panos/optimized_natural/${baseImageName}.jpg`)
+      }
+    })
+
+    if (connectedImages.length > 0) {
+      console.log(`Starting preload of ${connectedImages.length} connected images for ${panoramaId}`)
+      
+      this.preloader.startPreloading(
+        connectedImages,
+        basePath,
+        (progress, total) => {
+          console.log(`Preload progress: ${progress}/${total}`)
+          // Update UI if needed
+          this.updatePreloadProgress(progress, total)
+        },
+        () => {
+          console.log('Connected panoramas preloaded!')
+        }
+      )
+    }
+  }
+
+  private updatePreloadProgress(progress: number, total: number): void {
+    // Update info text to show preload progress
+    if (this.infoText) {
+      const progressText = total > 0 ? `\n\nPreloading: ${progress}/${total}` : ''
+      this.infoText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}\n\nClick hotspots to navigate\nUse "Enter VR Mode" for immersive experience${progressText}`
     }
   }
 
@@ -631,6 +709,7 @@ class VRPanoramaViewer {
   public dispose(): void {
     this.clearScene()
     this.disposeFloorplanUI()
+    this.preloader.dispose()
     this.scene.dispose()
     this.engine.dispose()
   }

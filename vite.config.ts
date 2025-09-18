@@ -19,5 +19,8 @@ export default defineConfig(({ command }) => ({
   },
   optimizeDeps: {
     include: ['@babylonjs/core', '@babylonjs/gui', '@babylonjs/loaders']
+  },
+  worker: {
+    format: 'es'
   }
 }))

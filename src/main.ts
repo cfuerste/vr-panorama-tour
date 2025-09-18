@@ -60,6 +60,7 @@ class VRPanoramaViewer {
   private floorplanContainer: TransformNode | null = null
   private isVRActive = false
   private infoText: TextBlock | null = null
+  private enterVRButton: Button | null = null
   private preloader: PanoramaPreloader
 
   constructor(canvas: HTMLCanvasElement) {
@@ -300,14 +301,14 @@ class VRPanoramaViewer {
   private updatePreloadProgress(progress: number, total: number): void {
     // Update info text to show preload progress
     if (this.infoText) {
-      const progressText = total > 0 ? `\n\nPreloading: ${progress}/${total}` : ''
-      this.infoText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}\n\nClick hotspots to navigate\nUse "Enter VR Mode" for immersive experience${progressText}`
+      const progressText = total > 0 ? `\nPreloading: ${progress}/${total}` : ''
+      this.infoText.text = `\nCurrent Location:\n${this.getCurrentPanoramaDisplayName()}${progressText}`
     }
   }
 
   private updateInfoText(): void {
     if (this.infoText) {
-      this.infoText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}\n\nClick hotspots to navigate\nUse "Enter VR Mode" for immersive experience`
+      this.infoText.text = `\nCurrent Location:\n${this.getCurrentPanoramaDisplayName()}`
     }
   }
 
@@ -429,9 +430,9 @@ class VRPanoramaViewer {
 
   private createHotspotLabel(hotspot: Mesh, text: string, index: number): void {
     // Create plane for label
-    const labelPlane = MeshBuilder.CreatePlane(`label_${index}`, { size: 20 }, this.scene)
+    const labelPlane = MeshBuilder.CreatePlane(`label_${index}`, { size: 80 }, this.scene)
     labelPlane.position = hotspot.position.clone()
-    labelPlane.position.y += 12
+    labelPlane.position.y += 10
     labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL
 
     // Create label texture
@@ -440,15 +441,21 @@ class VRPanoramaViewer {
     const textBlock = new TextBlock()
     textBlock.text = text
     textBlock.color = 'white'
-    textBlock.fontSize = 60
+    textBlock.fontSize = 50
     textBlock.fontFamily = 'Arial'
+    textBlock.textWrapping = true
+    textBlock.resizeToFit = true
     
     const background = new Rectangle()
-    background.widthInPixels = 300
-    background.heightInPixels = 80
+    background.adaptWidthToChildren = true
+    background.adaptHeightToChildren = true
     background.cornerRadius = 10
     background.color = 'rgba(0, 0, 0, 0.8)'
-    background.thickness = 2
+    background.thickness = 0  // Remove visible frame
+    background.paddingTopInPixels = 10
+    background.paddingBottomInPixels = 10
+    background.paddingLeftInPixels = 15
+    background.paddingRightInPixels = 15
     background.addControl(textBlock)
     
     labelTexture.addControl(background)
@@ -522,6 +529,11 @@ class VRPanoramaViewer {
   private onEnterVR(): void {
     console.log('VR mode activated - refreshing photodome rendering')
     
+    // Hide VR enter button when in VR mode
+    if (this.enterVRButton) {
+      this.enterVRButton.isVisible = false
+    }
+    
     // Force photodome refresh for VR
     if (this.currentPhotoDome) {
       // Unfreeze material to allow updates
@@ -562,6 +574,11 @@ class VRPanoramaViewer {
     console.log('Exiting VR mode')
     this.disposeFloorplanUI()
     
+    // Show VR enter button when exiting VR mode
+    if (this.enterVRButton) {
+      this.enterVRButton.isVisible = true
+    }
+    
     // Re-optimize materials for desktop
     if (this.currentPhotoDome?.material && !this.currentPhotoDome.material.isFrozen) {
       this.currentPhotoDome.material.freeze()
@@ -573,16 +590,16 @@ class VRPanoramaViewer {
     const advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI('UI')
     
     // VR Enter button
-    const enterVRButton = Button.CreateSimpleButton('enterVR', 'Enter VR Mode')
-    enterVRButton.widthInPixels = 200
-    enterVRButton.heightInPixels = 60
-    enterVRButton.color = 'white'
-    enterVRButton.cornerRadius = 10
-    enterVRButton.background = 'rgba(0, 100, 200, 0.8)'
-    enterVRButton.top = '-200px'
-    enterVRButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM
+    this.enterVRButton = Button.CreateSimpleButton('enterVR', 'Enter VR Mode')
+    this.enterVRButton.widthInPixels = 200
+    this.enterVRButton.heightInPixels = 60
+    this.enterVRButton.color = 'white'
+    this.enterVRButton.cornerRadius = 10
+    this.enterVRButton.background = 'rgba(0, 100, 200, 0.8)'
+    this.enterVRButton.top = '-200px'
+    this.enterVRButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM
     
-    enterVRButton.onPointerClickObservable.add(() => {
+    this.enterVRButton.onPointerClickObservable.add(() => {
       if (this.xrHelper?.baseExperience) {
         this.xrHelper.baseExperience.enterXRAsync('immersive-vr', 'local-floor')
       }
@@ -590,7 +607,7 @@ class VRPanoramaViewer {
     
     // Only show VR button if WebXR is supported
     if (this.xrHelper) {
-      advancedTexture.addControl(enterVRButton)
+      advancedTexture.addControl(this.enterVRButton)
     }
 
     // Add panorama info panel
@@ -608,7 +625,7 @@ class VRPanoramaViewer {
     advancedTexture.addControl(infoPanel)
     
     const infoText = new TextBlock()
-    infoText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}\n\nClick hotspots to navigate\nUse "Enter VR Mode" for immersive experience`
+    infoText.text = `\nCurrent Location:\n${this.getCurrentPanoramaDisplayName()}`
     infoText.color = 'white'
     infoText.fontSize = 16
     infoText.textWrapping = true

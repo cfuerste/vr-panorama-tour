@@ -62,6 +62,8 @@ class VRPanoramaViewer {
   private infoText: TextBlock | null = null
   private enterVRButton: Button | null = null
   private desktopUI: AdvancedDynamicTexture | null = null
+  private vrCaptionContainer: TransformNode | null = null
+  private vrCaptionUI: AdvancedDynamicTexture | null = null
   private preloader: PanoramaPreloader
 
   constructor(canvas: HTMLCanvasElement) {
@@ -231,6 +233,9 @@ class VRPanoramaViewer {
       // Update floorplan
       this.updateFloorplan()
 
+      // Update VR caption if in VR mode
+      this.updateVRCaption()
+
       // Update info text
       this.updateInfoText()
 
@@ -344,7 +349,7 @@ class VRPanoramaViewer {
       // Create hotspot material with better visual feedback
       const material = new PBRMaterial(`hotspotMat_${index}`, this.scene)
       material.albedoColor = new Color3(0.8, 0.8, 0.8)
-      material.emissiveColor = new Color3(0.6, 0.6, 0.6)
+      material.emissiveColor = new Color3(0, 0.5, 1)
       material.metallic = 0
       material.roughness = 0.8
       material.alpha = 0.5
@@ -517,8 +522,11 @@ class VRPanoramaViewer {
           controller.onMotionControllerInitObservable.add((motionController) => {
             console.log('Controller connected:', motionController.handness)
             
-            if (motionController.handness === 'left') {
-              this.attachFloorplanToController(controller)
+            if (motionController.handness === 'left' && this.isVRActive) {
+              // Try to attach floorplan if it exists
+              if (this.floorplanContainer) {
+                this.attachFloorplanToController(controller)
+              }
             }
           })
         })
@@ -532,9 +540,12 @@ class VRPanoramaViewer {
     console.log('VR mode activated - refreshing photodome rendering')
     
     // Hide entire desktop UI when in VR mode
-    if (this.desktopUI?.layer) {
-      this.desktopUI.layer.isEnabled = false
+    if (this.desktopUI) {
+      this.desktopUI.rootContainer.isVisible = false
     }
+    
+    // Setup VR caption
+    this.setupVRCaption()
     
     // Force photodome refresh for VR
     if (this.currentPhotoDome) {
@@ -575,10 +586,11 @@ class VRPanoramaViewer {
   private onExitVR(): void {
     console.log('Exiting VR mode')
     this.disposeFloorplanUI()
+    this.disposeVRCaption()
     
     // Show desktop UI when exiting VR mode
-    if (this.desktopUI?.layer) {
-      this.desktopUI.layer.isEnabled = true
+    if (this.desktopUI) {
+      this.desktopUI.rootContainer.isVisible = true
     }
     
     // Re-optimize materials for desktop
@@ -649,7 +661,7 @@ class VRPanoramaViewer {
     this.desktopUI.addControl(instructionsPanel)
     
     const instructionsText = new TextBlock()
-    instructionsText.text = 'Desktop: Click and drag to look around\nVR: Use hand tracking or controllers\nto interact with red hotspots'
+    instructionsText.text = 'Desktop: Click and drag to look around\nVR: Use hand tracking or controllers\nto interact with hotspots'
     instructionsText.color = 'white'
     instructionsText.fontSize = 14
     instructionsText.textWrapping = true
@@ -667,6 +679,8 @@ class VRPanoramaViewer {
   private setupFloorplanUI(): void {
     if (!this.isVRActive) return
 
+    console.log('Setting up floorplan UI')
+
     // Create floorplan container
     this.floorplanContainer = new TransformNode('floorplanContainer', this.scene)
     
@@ -681,6 +695,8 @@ class VRPanoramaViewer {
     const basePath = import.meta.env.BASE_URL
     const floorplanPath = `${basePath}ui/floorplan_${currentFloor}.png`
     
+    console.log('Loading floorplan:', floorplanPath)
+    
     this.floorplanUI = AdvancedDynamicTexture.CreateForMesh(floorplanPlane)
     
     const background = new Rectangle()
@@ -692,19 +708,34 @@ class VRPanoramaViewer {
     floorplanImage.stretch = Image.STRETCH_UNIFORM
     background.addControl(floorplanImage)
 
+    // Try to attach to any existing left controllers
+    if (this.xrHelper?.input.controllers) {
+      this.xrHelper.input.controllers.forEach(controller => {
+        if (controller.motionController?.handness === 'left') {
+          console.log('Found existing left controller, attaching floorplan')
+          this.attachFloorplanToController(controller)
+        }
+      })
+    }
+
     // Add current position indicator
     this.updateFloorplan()
   }
 
   private attachFloorplanToController(controller: any): void {
-    if (!this.floorplanContainer) return
+    if (!this.floorplanContainer || !this.isVRActive) {
+      // If floorplan isn't ready yet, set up to attach when it is
+      console.log('Floorplan not ready, setting up delayed attachment')
+      return
+    }
 
-    // Attach floorplan to left controller
-    controller.onMotionControllerInitObservable.add(() => {
-      if (controller.motionController?.handness === 'left') {
-        this.floorplanContainer!.parent = controller.grip || controller.pointer
-      }
-    })
+    console.log('Attaching floorplan to left controller')
+    // Directly attach floorplan to controller
+    if (controller.grip) {
+      this.floorplanContainer.parent = controller.grip
+    } else if (controller.pointer) {
+      this.floorplanContainer.parent = controller.pointer
+    }
   }
 
   private updateFloorplan(): void {
@@ -729,9 +760,75 @@ class VRPanoramaViewer {
     }
   }
 
+  private setupVRCaption(): void {
+    if (!this.isVRActive) return
+
+    // Create VR caption container
+    this.vrCaptionContainer = new TransformNode('vrCaptionContainer', this.scene)
+    
+    // Position the caption in front of the user
+    this.vrCaptionContainer.position = new Vector3(0, 0.5, -2)
+    
+    // Create caption plane
+    const captionPlane = MeshBuilder.CreatePlane('vrCaption', { size: 1.5 }, this.scene)
+    captionPlane.parent = this.vrCaptionContainer
+    captionPlane.billboardMode = Mesh.BILLBOARDMODE_ALL // Always face the user
+    
+    // Create caption UI
+    this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane)
+    
+    // Create background
+    const background = new Rectangle()
+    background.background = 'rgba(0, 0, 0, 0.7)'
+    background.cornerRadius = 15
+    background.adaptWidthToChildren = true
+    background.adaptHeightToChildren = true
+    background.paddingTopInPixels = 15
+    background.paddingBottomInPixels = 15
+    background.paddingLeftInPixels = 25
+    background.paddingRightInPixels = 25
+    this.vrCaptionUI.addControl(background)
+    
+    // Create text
+    const captionText = new TextBlock()
+    captionText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}`
+    captionText.color = 'white'
+    captionText.fontSize = 48
+    captionText.fontFamily = 'Arial'
+    captionText.textWrapping = true
+    captionText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
+    captionText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
+    background.addControl(captionText)
+  }
+
+  private disposeVRCaption(): void {
+    if (this.vrCaptionUI) {
+      this.vrCaptionUI.dispose()
+      this.vrCaptionUI = null
+    }
+    if (this.vrCaptionContainer) {
+      this.vrCaptionContainer.dispose()
+      this.vrCaptionContainer = null
+    }
+  }
+
+  private updateVRCaption(): void {
+    if (!this.vrCaptionUI || !this.isVRActive) return
+    
+    // Find the text block and update it
+    const background = this.vrCaptionUI.getControlByName('') as Rectangle
+    if (background && background.children.length > 0) {
+      const captionText = background.children[0] as TextBlock
+      if (captionText) {
+        captionText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}`
+      }
+    }
+  }
+
   public dispose(): void {
     this.clearScene()
     this.disposeFloorplanUI()
+    this.disposeVRCaption()
     this.preloader.dispose()
     this.scene.dispose()
     this.engine.dispose()

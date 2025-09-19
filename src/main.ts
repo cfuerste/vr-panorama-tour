@@ -58,6 +58,7 @@ class VRPanoramaViewer {
   private hotspots: Mesh[] = []
   private panoramaData: PanoramaDatabase = {}
   private currentPanorama: string = 'Panorama_Außenanlagen_001'
+  private currentLocationLabel: string = 'Drehgestelllager'
   private floorplanUI: AdvancedDynamicTexture | null = null
   private floorplanContainer: TransformNode | null = null
   private isVRActive = false
@@ -339,13 +340,17 @@ class VRPanoramaViewer {
     // Update info text to show preload progress
     if (this.infoText) {
       const progressText = total > 0 ? `\nPreloading: ${progress}/${total}` : ''
-      this.infoText.text = `\nCurrent Location:\n${this.getCurrentPanoramaDisplayName()}${progressText}`
+      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentPanoramaDisplayName()}${progressText}`
     }
+  }
+
+  private getCurrentLocationLabel(): string {
+    return this.currentLocationLabel
   }
 
   private updateInfoText(): void {
     if (this.infoText) {
-      this.infoText.text = `\nCurrent Location:\n${this.getCurrentPanoramaDisplayName()}`
+      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}`
     }
   }
 
@@ -433,7 +438,7 @@ class VRPanoramaViewer {
         }
       ))
       
-      // On click/select - navigate
+      // On click/select - navigate and store the label
       hotspot.actionManager.registerAction(new ExecuteCodeAction(
         ActionManager.OnPickTrigger,
         () => {
@@ -452,6 +457,9 @@ class VRPanoramaViewer {
               }
             })
           }
+          
+          // Store the label before navigating
+          this.currentLocationLabel = link.label
           this.navigateToPanorama(link.to)
         }
       ))
@@ -1043,33 +1051,12 @@ class VRPanoramaViewer {
     this.desktopUI.addControl(infoPanel)
     
     const infoText = new TextBlock()
-    infoText.text = `\nCurrent Location:\n${this.getCurrentPanoramaDisplayName()}`
+    infoText.text = `\nAktueller Standort:\n${this.getCurrentPanoramaDisplayName()}`
     infoText.color = 'white'
     infoText.fontSize = 16
     infoText.textWrapping = true
     infoText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
     infoPanel.addControl(infoText)
-
-    // Instructions for desktop users
-    const instructionsPanel = new Rectangle('instructions')
-    instructionsPanel.width = '280px'
-    instructionsPanel.height = '80px'
-    instructionsPanel.cornerRadius = 10
-    instructionsPanel.color = 'white'
-    instructionsPanel.thickness = 2
-    instructionsPanel.background = 'rgba(100, 50, 0, 0.7)'
-    instructionsPanel.top = '160px'
-    instructionsPanel.left = '20px'
-    instructionsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
-    instructionsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-    this.desktopUI.addControl(instructionsPanel)
-    
-    const instructionsText = new TextBlock()
-    instructionsText.text = 'Desktop: Click and drag to look around\nVR: Use hand tracking or controllers\nto interact with hotspots'
-    instructionsText.color = 'white'
-    instructionsText.fontSize = 14
-    instructionsText.textWrapping = true
-    instructionsPanel.addControl(instructionsText)
 
     // Store reference to update later
     this.infoText = infoText
@@ -1157,7 +1144,7 @@ class VRPanoramaViewer {
   }
 
   private updateFloorplan(): void {
-    if (!this.floorplanUI || !this.isVRActive) return
+    if (!this.floorplanUI || (!this.isVRActive && !this.isVREmulationMode)) return
 
     const currentData = this.panoramaData[this.currentPanorama]
     if (!currentData) return
@@ -1177,7 +1164,7 @@ class VRPanoramaViewer {
       this.floorplanContainer = null
     }
   }
-
+  
   private setupVRCaption(): void {
     if (!this.isVRActive) return
 
@@ -1195,22 +1182,14 @@ class VRPanoramaViewer {
     // Create caption UI with high resolution for Meta Quest 3
     this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane, 1024, 512)
     
-    // Create background
-    const background = new Rectangle('vrCaptionBackground')
-    background.background = 'rgba(0, 0, 0, 0.8)'
-    background.cornerRadius = 10
-    background.thickness = 0  // Remove frame border
-    background.adaptWidthToChildren = true
-    background.adaptHeightToChildren = true
-    background.paddingTopInPixels = 12
-    background.paddingBottomInPixels = 12
-    background.paddingLeftInPixels = 16
-    background.paddingRightInPixels = 16
-    this.vrCaptionUI.addControl(background)
+    // Make the entire UI non-interactive for click-through
+    this.vrCaptionUI.isForeground = false
+    this.vrCaptionUI.rootContainer.isPointerBlocker = false
+    this.vrCaptionUI.rootContainer.isHitTestVisible = false
     
-    // Create text
+    // Create text directly without background
     const captionText = new TextBlock('vrCaptionText')
-    captionText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}`
+    captionText.text = `Aktueller Standort:\n\n${this.getCurrentPanoramaDisplayName()}`
     captionText.color = 'white'
     captionText.fontSize = 32
     captionText.fontFamily = 'Arial'
@@ -1218,7 +1197,13 @@ class VRPanoramaViewer {
     captionText.textWrapping = true
     captionText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
     captionText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
-    background.addControl(captionText)
+
+    // Make text non-interactive for click-through
+    captionText.isPointerBlocker = false
+    captionText.isHitTestVisible = false
+
+    // Add text directly to UI (no background container)
+    this.vrCaptionUI.addControl(captionText)
     
     // Register update function to keep caption in front of camera
     this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
@@ -1243,7 +1228,7 @@ class VRPanoramaViewer {
     
     // Position the caption closer for better readability in Meta Quest 3
     const distance = 1.5
-    const heightOffset = 0.2 // Slightly below eye level for comfortable reading
+    const heightOffset = 0.5
     
     this.vrCaptionContainer.position.x = cameraPosition.x + cameraDirection.x * distance
     this.vrCaptionContainer.position.y = cameraPosition.y + cameraDirection.y * distance + heightOffset
@@ -1268,13 +1253,70 @@ class VRPanoramaViewer {
   }
 
   private updateVRCaption(): void {
-    if (!this.vrCaptionUI || !this.isVRActive) return
+    if (!this.isVRActive) return
+
+    // Create VR caption container
+    this.vrCaptionContainer = new TransformNode('vrCaptionContainer', this.scene)
     
-    // Find the text block by name and update it
-    const captionText = this.vrCaptionUI.getControlByName('vrCaptionText') as TextBlock
-    if (captionText) {
-      captionText.text = `Current Location:\n${this.getCurrentPanoramaDisplayName()}`
-    }
+    // Position the caption in front of the user (will be updated each frame)
+    this.vrCaptionContainer.position = new Vector3(0, 0.5, -2)
+    
+    // Create caption plane - optimized for Meta Quest 3
+    const captionPlane = MeshBuilder.CreatePlane('vrCaption', { width: 1.0, height: 0.4 }, this.scene)
+    captionPlane.parent = this.vrCaptionContainer
+    captionPlane.billboardMode = Mesh.BILLBOARDMODE_ALL // Always face the user
+    
+    // Make plane non-pickable for click-through functionality
+    captionPlane.isPickable = false
+    captionPlane.isBlocker = false
+    
+    // Create caption UI with high resolution for Meta Quest 3
+    this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane, 1024, 512)
+    
+    // Make the entire UI non-interactive for click-through
+    this.vrCaptionUI.isForeground = false
+    this.vrCaptionUI.rootContainer.isPointerBlocker = false
+    this.vrCaptionUI.rootContainer.isHitTestVisible = false
+    
+    // Create background
+    const background = new Rectangle('vrCaptionBackground')
+    background.background = 'rgba(0, 0, 0, 0'
+    background.cornerRadius = 10
+    background.thickness = 0  // Remove frame border
+    background.adaptWidthToChildren = true
+    background.adaptHeightToChildren = true
+    background.paddingTopInPixels = 12
+    background.paddingBottomInPixels = 12
+    background.paddingLeftInPixels = 16
+    background.paddingRightInPixels = 16
+    
+    // Make background non-interactive
+    background.isPointerBlocker = false
+    background.isHitTestVisible = false
+    
+    this.vrCaptionUI.addControl(background)
+    
+    // Create text
+    const captionText = new TextBlock('vrCaptionText')
+    captionText.text = `Aktueller Standort:\n\n${this.getCurrentLocationLabel()}`
+    captionText.color = 'white'
+    captionText.fontSize = 32
+    captionText.fontFamily = 'Arial'
+    captionText.fontWeight = 'bold'
+    captionText.textWrapping = true
+    captionText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
+    captionText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
+    
+    // Make text non-interactive
+    captionText.isPointerBlocker = false
+    captionText.isHitTestVisible = false
+    
+    background.addControl(captionText)
+    
+    // Register update function to keep caption in front of camera
+    this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
+      this.updateVRCaptionPosition()
+    })
   }
 
   private setupVREmulationControls(): void {
@@ -1302,24 +1344,27 @@ class VRPanoramaViewer {
   }
 
   private enterVREmulation(): void {
-    console.log('Entering VR emulation mode')
+    console.log('🥽 Entering VR emulation mode (UI only - no WebXR)')
     
-    // Simulate VR mode without actual WebXR
-    this.isVRActive = true
+    // IMPORTANT: Only simulate VR UI, don't trigger actual WebXR
+    this.isVREmulationMode = true
+    // Note: isVRActive stays false to prevent WebXR feature setup
     
-    // Hide desktop UI
-    if (this.desktopUI) {
+    // Hide desktop UI for emulation
+    if (this.desktopUI && this.desktopUI.rootContainer) {
+      console.log('🔄 Hiding desktop UI for emulation...')
       this.desktopUI.rootContainer.isVisible = false
+      this.desktopUI.rootContainer.alpha = 0
     }
     
-    // Setup VR-specific UI
-    this.setupVRCaption()
-    this.setupFloorplanUI()
+    // Setup VR-specific UI for emulation (bypass isVRActive check)
+    this.setupVRCaptionEmulation()
+    this.setupFloorplanUIEmulation()
     
     // Show emulation info
     this.showEmulationInfo()
     
-    // Force photodome refresh for VR
+    // VR-style material setup for visual testing
     if (this.currentPhotoDome) {
       if (this.currentPhotoDome.material && this.currentPhotoDome.material.isFrozen) {
         this.currentPhotoDome.material.unfreeze()
@@ -1338,17 +1383,21 @@ class VRPanoramaViewer {
     }
     
     this.scene.render()
+    console.log('🥽 VR emulation UI active (no WebXR session)')
   }
 
   private exitVREmulation(): void {
-    console.log('Exiting VR emulation mode')
+    console.log('🖥️  Exiting VR emulation mode (restoring desktop UI)')
     
-    // Reset VR state
-    this.isVRActive = false
+    // Reset emulation state
+    this.isVREmulationMode = false
+    // Note: isVRActive should already be false
     
-    // Show desktop UI
-    if (this.desktopUI) {
+    // Restore desktop UI
+    if (this.desktopUI && this.desktopUI.rootContainer) {
+      console.log('🔄 Restoring desktop UI...')
       this.desktopUI.rootContainer.isVisible = true
+      this.desktopUI.rootContainer.alpha = 1
     }
     
     // Clean up VR-specific UI
@@ -1360,6 +1409,96 @@ class VRPanoramaViewer {
     if (this.currentPhotoDome?.material && !this.currentPhotoDome.material.isFrozen) {
       this.currentPhotoDome.material.freeze()
     }
+    
+    console.log('🖥️  VR emulation exited - desktop UI restored')
+  }
+
+  // VR Caption setup for emulation mode (bypasses isVRActive check)
+  private setupVRCaptionEmulation(): void {
+    console.log('Setting up VR caption for emulation mode')
+
+    // Create VR caption container
+    this.vrCaptionContainer = new TransformNode('vrCaptionContainer', this.scene)
+    
+    // Position the caption in front of the user (will be updated each frame)
+    this.vrCaptionContainer.position = new Vector3(0, 0.5, -2)
+    
+    // Create caption plane - optimized for emulation
+    const captionPlane = MeshBuilder.CreatePlane('vrCaption', { width: 1.0, height: 0.4 }, this.scene)
+    captionPlane.parent = this.vrCaptionContainer
+    captionPlane.billboardMode = Mesh.BILLBOARDMODE_ALL // Always face the user
+    
+    // Make plane non-pickable for click-through functionality
+    captionPlane.isPickable = false
+    captionPlane.isBlocker = false
+    
+    // Create caption UI with high resolution
+    this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane, 1024, 512)
+    
+    // Make the entire UI non-interactive for click-through
+    this.vrCaptionUI.isForeground = false
+    this.vrCaptionUI.rootContainer.isPointerBlocker = false
+    this.vrCaptionUI.rootContainer.isHitTestVisible = false
+    
+    // Create text directly without background
+    const captionText = new TextBlock('vrCaptionText')
+    captionText.text = `Aktueller Standort:\n\n${this.getCurrentLocationLabel()}\n(EMULATION MODE)`
+    captionText.color = 'white'
+    captionText.fontSize = 32
+    captionText.fontFamily = 'Arial'
+    captionText.fontWeight = 'bold'
+    captionText.textWrapping = true
+    captionText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
+    captionText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
+    
+    // Make text non-interactive for click-through
+    captionText.isPointerBlocker = false
+    captionText.isHitTestVisible = false
+    
+    // Add text directly to UI (no background container)
+    this.vrCaptionUI.addControl(captionText)
+    
+    // Register update function to keep caption in front of camera
+    this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
+      this.updateVRCaptionPosition()
+    })
+  }
+
+  // Floorplan setup for emulation mode (bypasses isVRActive check)
+  private setupFloorplanUIEmulation(): void {
+    console.log('Setting up floorplan UI for emulation mode')
+
+    // Create floorplan container
+    this.floorplanContainer = new TransformNode('floorplanContainer', this.scene)
+    
+    // Position floorplan to the left side where it's visible in emulation
+    this.floorplanContainer.position = new Vector3(-1.5, 0, -1)
+    this.floorplanContainer.rotation = new Vector3(0, Math.PI / 4, 0)
+    
+    // Create floorplan plane
+    const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { size: 0.3 }, this.scene)
+    floorplanPlane.parent = this.floorplanContainer
+
+    // Load appropriate floorplan image
+    const currentFloor = this.panoramaData[this.currentPanorama]?.floor || 'EG'
+    const basePath = import.meta.env.BASE_URL
+    const floorplanPath = `${basePath}ui/floorplan_${currentFloor}.png`
+    
+    console.log('Loading floorplan for emulation:', floorplanPath)
+    
+    this.floorplanUI = AdvancedDynamicTexture.CreateForMesh(floorplanPlane)
+    
+    const background = new Rectangle()
+    background.background = 'rgba(255, 255, 255, 0.9)'
+    background.cornerRadius = 10
+    this.floorplanUI.addControl(background)
+    
+    const floorplanImage = new Image('floorplan', floorplanPath)
+    floorplanImage.stretch = Image.STRETCH_UNIFORM
+    background.addControl(floorplanImage)
+
+    // Add current position indicator
+    this.updateFloorplan()
   }
 
   private showEmulationInfo(): void {

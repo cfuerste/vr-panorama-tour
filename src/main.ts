@@ -770,19 +770,20 @@ class VRPanoramaViewer {
 
     // Try pointer selection again now that we're in VR
     try {
-      console.log('👆 Attempting to enable pointer selection in VR session...')
+      console.log('👆 Attempting to enable pointer selection in VR session (right controller only)...')
       
       const pointerFeature = this.xrHelper.baseExperience.featuresManager.enableFeature(
         'pointer-selection' as any,
         'stable',
         { 
           xrInput: this.xrHelper.input,
-          enablePointerSelectionOnAllControllers: true
+          enablePointerSelectionOnAllControllers: false,
+          preferredHandness: 'right'
         }
       )
       
       if (pointerFeature) {
-        console.log('✅ Pointer selection enabled successfully in VR session')
+        console.log('✅ Pointer selection enabled successfully in VR session (right controller only)')
       } else {
         console.log('⚠️  Pointer selection still not available in VR session')
       }
@@ -831,19 +832,20 @@ class VRPanoramaViewer {
 
     // Try pointer selection (may not be available yet)
     try {
-      console.log('Attempting to enable pointer selection...')
+      console.log('Attempting to enable pointer selection (right controller only)...')
       
       const pointerFeature = this.xrHelper?.baseExperience?.featuresManager?.enableFeature(
         'pointer-selection' as any,
         'stable',
         { 
           xrInput: this.xrHelper?.input,
-          enablePointerSelectionOnAllControllers: true
+          enablePointerSelectionOnAllControllers: false,
+          preferredHandness: 'right'
         }
       )
       
       if (pointerFeature) {
-        console.log('✅ Pointer selection enabled in initial setup')
+        console.log('✅ Pointer selection enabled in initial setup (right controller only)')
       } else {
         console.log('ℹ️  Pointer selection not available in initial setup - will retry in VR session')
       }

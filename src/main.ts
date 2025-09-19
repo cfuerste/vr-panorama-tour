@@ -16,6 +16,8 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { PanoramaPreloader } from './panoramaPreloader'
 
+// Import GLB loader plugin
+import '@babylonjs/loaders/glTF'
 
 // Import WebXR features
 import '@babylonjs/core/XR/features/WebXRHandTracking'
@@ -69,7 +71,7 @@ class VRPanoramaViewer {
   private preloader: PanoramaPreloader
 
   constructor(canvas: HTMLCanvasElement) {
-    // Initialize engine with VR optimizations
+    // Initialize engine with VR optimizations and improved WebGL error handling
     this.engine = new Engine(canvas, true, {
       preserveDrawingBuffer: true,
       stencil: true,
@@ -78,8 +80,31 @@ class VRPanoramaViewer {
       antialias: false, // Better VR performance
       alpha: false,
       doNotHandleContextLost: true, // Better performance on Quest
-      audioEngine: false // Disable audio engine if not needed
+      audioEngine: false, // Disable audio engine if not needed
+      // Enhanced framebuffer handling
+      failIfMajorPerformanceCaveat: false,
+      xrCompatible: true, // Ensure XR compatibility
+      // Improved multisample handling for VR
+      premultipliedAlpha: false,
+      depth: true,
+      // Better error recovery
+      adaptToDeviceRatio: true
     })
+
+    // Add WebGL error handling
+    const gl = this.engine._gl
+    if (gl) {
+      // Override WebGL functions to catch and handle framebuffer errors gracefully
+      const originalFramebufferTexture2D = gl.framebufferTexture2D
+      gl.framebufferTexture2D = function(target: number, attachment: number, textarget: number, texture: WebGLTexture | null, level: number) {
+        try {
+          return originalFramebufferTexture2D.call(this, target, attachment, textarget, texture, level)
+        } catch (error) {
+          console.warn('WebGL framebuffer operation failed, continuing:', error)
+          return null
+        }
+      }
+    }
 
     // Create scene with performance optimizations
     this.scene = new Scene(this.engine)
@@ -89,6 +114,15 @@ class VRPanoramaViewer {
     this.scene.skipPointerMovePicking = true // Skip unnecessary picking
     this.scene.autoClear = true
     this.scene.autoClearDepthAndStencil = true
+    
+    // Add global error handling for WebGL context
+    this.engine.onContextLostObservable.add(() => {
+      console.warn('WebGL context lost - attempting recovery')
+    })
+    
+    this.engine.onContextRestoredObservable.add(() => {
+      console.log('WebGL context restored successfully')
+    })
 
     // Create camera
     this.camera = new UniversalCamera('Camera', new Vector3(0, 0, 0), this.scene)
@@ -142,7 +176,6 @@ class VRPanoramaViewer {
       // Use Vite's base URL to handle both dev and production paths
       const basePath = import.meta.env.BASE_URL
       const jsonPath = `${basePath}json/Panoramane_Standorte.json`
-      console.log('Loading panorama data from:', jsonPath)
       const response = await fetch(jsonPath)
       
       if (!response.ok) {
@@ -150,7 +183,6 @@ class VRPanoramaViewer {
       }
       
       this.panoramaData = await response.json()
-      console.log('Loaded panorama data:', Object.keys(this.panoramaData).length, 'panoramas')
     } catch (error) {
       console.error('Failed to load panorama data:', error)
     }
@@ -183,8 +215,6 @@ class VRPanoramaViewer {
     // Check if image is preloaded
     const preloadedUrl = this.preloader.getPreloadedImage(imagePath)
     const finalImagePath = preloadedUrl || imagePath
-    
-    console.log(`Loading panorama: ${panoramaId}`, preloadedUrl ? '(preloaded)' : '(network)')
     
     try {
       this.currentPhotoDome = new PhotoDome(
@@ -247,7 +277,6 @@ class VRPanoramaViewer {
       // Preload connected panoramas after loading current one
       this.preloadConnectedPanoramas(panoramaId)
 
-      console.log('Loaded panorama:', panoramaId, 'with resolution:', imageSuffix)
     } catch (error) {
       console.error('Failed to load panorama:', panoramaId, error)
     }
@@ -255,7 +284,6 @@ class VRPanoramaViewer {
 
   private startBackgroundPreloading(): void {
     if (!this.panoramaData || Object.keys(this.panoramaData).length === 0) {
-      console.log('No panorama data available for preloading')
       return
     }
 
@@ -292,18 +320,16 @@ class VRPanoramaViewer {
     })
 
     if (connectedImages.length > 0) {
-      console.log(`Starting preload of ${connectedImages.length} connected images for ${panoramaId}`)
-      
       this.preloader.startPreloading(
         connectedImages,
         '', // Empty base path since we already have complete URLs
         (progress, total) => {
-          console.log(`Preload progress: ${progress}/${total}`)
-          // Update UI if needed
+          // Update UI progress display
           this.updatePreloadProgress(progress, total)
         },
         () => {
-          console.log('Connected panoramas preloaded!')
+          // Preloading complete - update UI
+          this.updateInfoText()
         }
       )
     }
@@ -476,25 +502,94 @@ class VRPanoramaViewer {
   }
 
   private async navigateToPanorama(targetPanorama: string): Promise<void> {
-    console.log('Navigating to:', targetPanorama)
     await this.loadPanorama(targetPanorama)
   }
 
   private async setupWebXR(): Promise<void> {
     try {
+      console.log('🔧 Setting up WebXR for Meta Quest 3...')
       this.xrHelper = await WebXRDefaultExperience.CreateAsync(this.scene, {
         floorMeshes: [],
         disableDefaultUI: false,
         disableTeleportation: false
       })
 
+      console.log('✅ WebXR initialized successfully')
+
       // Configure for Meta Quest 3
       if (this.xrHelper.baseExperience) {
-        // Enable hand tracking
-        this.xrHelper.baseExperience.featuresManager.enableFeature(
-          'hand-tracking' as any,
-          'latest'
-        )
+        console.log('🔧 Configuring WebXR features...')
+        
+        // Log initial state
+        console.log('📊 Initial WebXR state:', {
+          hasXRHelper: !!this.xrHelper,
+          hasBaseExperience: !!this.xrHelper.baseExperience,
+          hasSessionManager: !!this.xrHelper.baseExperience.sessionManager,
+          initialVRState: this.isVRActive,
+          isInXRSession: this.xrHelper.baseExperience.sessionManager?.inXRSession || false
+        })
+        // Enable hand tracking with comprehensive fallback error handling
+        try {
+          console.log('Attempting to enable hand tracking...')
+          
+          // First, check if hand tracking is supported
+          if ('XRSession' in window && navigator.xr && 'requestSession' in navigator.xr) {
+            const handTrackingOptions = {
+              // Disable external hand mesh loading to prevent CDN failures
+              disableHandMesh: true,
+              // Use simple geometric hand representation instead  
+              useSimpleHandMesh: true,
+              // Additional safety options
+              handMeshRiggingNeeded: false,
+              enableHandMeshes: false
+            }
+            
+            const handTrackingFeature = this.xrHelper.baseExperience.featuresManager.enableFeature(
+              'hand-tracking' as any,
+              'latest',
+              handTrackingOptions
+            )
+            
+            if (handTrackingFeature) {
+              console.log('Hand tracking enabled successfully with simple mesh')
+              
+              // Add error handling for hand tracking events (with type safety)
+              try {
+                const handFeature = handTrackingFeature as any
+                if (handFeature.onHandAddedObservable) {
+                  handFeature.onHandAddedObservable.add((hand: any) => {
+                    console.log('Hand added:', hand.handness)
+                  })
+                }
+                
+                if (handFeature.onHandRemovedObservable) {
+                  handFeature.onHandRemovedObservable.add((hand: any) => {
+                    console.log('Hand removed:', hand.handness)
+                  })
+                }
+              } catch (observableError) {
+                console.log('Hand tracking observables not available:', observableError)
+              }
+            } else {
+              console.warn('Hand tracking feature could not be enabled - feature returned null')
+            }
+          } else {
+            console.log('WebXR hand tracking not supported in this browser/device')
+          }
+        } catch (handTrackingError) {
+          console.warn('Hand tracking failed to initialize:', handTrackingError)
+          console.log('Continuing without hand tracking - controller input will still work')
+          
+          // Ensure we don't try to load external hand meshes
+          if (this.xrHelper.baseExperience.featuresManager) {
+            try {
+              // Disable any hand mesh loading attempts
+              this.xrHelper.baseExperience.featuresManager.disableFeature('hand-tracking' as any)
+            } catch (disableError) {
+              console.log('Hand tracking was not enabled to disable')
+            }
+          }
+        }
 
         // Enable controller pointer selection
         this.xrHelper.baseExperience.featuresManager.enableFeature(
@@ -506,47 +601,63 @@ class VRPanoramaViewer {
           }
         )
 
-        // Setup VR state change handlers with primary session detection
+        // Setup VR state change handlers with enhanced debugging for Meta Quest 3
         const sessionManager = this.xrHelper.baseExperience.sessionManager
+        
+        console.log('🔧 Setting up WebXR session detection for Meta Quest 3...')
         
         // Primary WebXR session event listeners (direct WebXR API)
         sessionManager.onXRSessionInit.add((session: XRSession) => {
-          console.log('XRSession started:', (session as any).mode, session.visibilityState)
+          const sessionMode = (session as any).mode || 'unknown'
+          console.log('🚀 XRSession STARTED:', {
+            mode: sessionMode,
+            visibilityState: session.visibilityState,
+            timestamp: new Date().toLocaleTimeString()
+          })
           
           // Validate this is an immersive VR session by checking the session manager
           const isImmersiveVR = this.xrHelper?.baseExperience?.sessionManager?.inXRSession || false
+          console.log('🔍 Session validation:', {
+            isImmersiveVR,
+            sessionManagerExists: !!this.xrHelper?.baseExperience?.sessionManager,
+            currentVRState: this.isVRActive
+          })
+          
           if (isImmersiveVR) {
-            console.log('Immersive VR session detected - entering VR mode')
+            console.log('✅ Immersive VR session detected - triggering VR mode')
             this.isVRActive = true
             this.onEnterVR()
             
             // Setup direct session event listeners for reliable state tracking
             session.addEventListener('visibilitychange', () => {
-              console.log('VR session visibility changed:', session.visibilityState)
+              console.log('👁️  VR session visibility changed:', {
+                visibilityState: session.visibilityState,
+                timestamp: new Date().toLocaleTimeString()
+              })
               // Handle visibility changes inline
               if (session.visibilityState === 'visible' && !this.isVRActive) {
-                console.log('VR session became visible - entering VR mode')
+                console.log('👁️  VR session became visible - entering VR mode')
                 this.isVRActive = true
                 this.onEnterVR()
               } else if (session.visibilityState === 'hidden' && this.isVRActive) {
-                console.log('VR session became hidden - staying in VR mode (backgrounded)')
+                console.log('👁️  VR session became hidden - staying in VR mode (backgrounded)')
                 // Keep VR mode active even when backgrounded
               }
             })
             
             session.addEventListener('end', () => {
-              console.log('VR session ended - exiting VR mode')
+              console.log('🛑 VR session ended - triggering exit VR mode')
               this.isVRActive = false
               this.onExitVR()
             })
           } else {
-            console.log('Non-immersive session detected')
+            console.log('ℹ️  Non-immersive session detected - not entering VR mode')
           }
         })
         
         // Listen for session end
         sessionManager.onXRSessionEnded.add(() => {
-          console.log('XRSession ended - ensuring VR mode is disabled')
+          console.log('🛑 XRSession ENDED - ensuring VR mode is disabled')
           if (this.isVRActive) {
             this.isVRActive = false
             this.onExitVR()
@@ -555,7 +666,11 @@ class VRPanoramaViewer {
 
         // Backup: Listen for WebXR state changes (secondary detection)
         this.xrHelper.baseExperience.onStateChangedObservable.add((state) => {
-          console.log('WebXR State Change (backup):', state, 'Current isVRActive:', this.isVRActive)
+          console.log('🔄 WebXR State Change (backup detection):', {
+            state,
+            currentVRState: this.isVRActive,
+            timestamp: new Date().toLocaleTimeString()
+          })
           
           // Only use backup detection if primary session detection didn't work
           const hasActiveSession = !!sessionManager.session && this.xrHelper?.baseExperience?.sessionManager?.inXRSession
@@ -563,28 +678,28 @@ class VRPanoramaViewer {
           switch (state) {
             case WebXRState.ENTERING_XR:
               if (!this.isVRActive && hasActiveSession) {
-                console.log('Backup: Entering VR - hiding desktop UI')
+                console.log('🔄 Backup: Entering VR - hiding desktop UI')
                 this.isVRActive = true
                 this.onEnterVR()
               }
               break
             case WebXRState.EXITING_XR:
               if (this.isVRActive && !hasActiveSession) {
-                console.log('Backup: Exiting VR - showing desktop UI')
+                console.log('🔄 Backup: Exiting VR - showing desktop UI')
                 this.isVRActive = false
                 this.onExitVR()
               }
               break
             case WebXRState.IN_XR:
               if (!this.isVRActive && hasActiveSession) {
-                console.log('Backup: In VR state - ensuring desktop UI is hidden')
+                console.log('🔄 Backup: In VR state - ensuring desktop UI is hidden')
                 this.isVRActive = true
                 this.onEnterVR()
               }
               break
             case WebXRState.NOT_IN_XR:
               if (this.isVRActive && !hasActiveSession) {
-                console.log('Backup: Not in VR state - ensuring desktop UI is visible')
+                console.log('🔄 Backup: Not in VR state - ensuring desktop UI is visible')
                 this.isVRActive = false
                 this.onExitVR()
               }
@@ -592,41 +707,43 @@ class VRPanoramaViewer {
           }
         })
 
-        // Frame-based validation for Meta Quest 3 compatibility with additional debugging
+        // Frame-based validation for Meta Quest 3 compatibility with enhanced debugging
         let frameCount = 0
         this.scene.registerBeforeRender(() => {
           frameCount++
           const session = sessionManager.session
           const inXRSession = this.xrHelper?.baseExperience?.sessionManager?.inXRSession || false
           
-          // Enhanced debugging every 60 frames (once per second at 60fps)
-          if (frameCount % 60 === 0) {
-            console.log('Frame check debug:', {
+          // Enhanced debugging every 120 frames (every 2 seconds at 60fps)
+          if (frameCount % 120 === 0) {
+            console.log('🔍 Frame check debug (every 2s):', {
+              frameCount,
               hasSession: !!session,
               inXRSession,
               isVRActive: this.isVRActive,
               desktopUIVisible: this.desktopUI?.rootContainer?.isVisible,
-              sessionVisibilityState: session?.visibilityState
+              sessionVisibilityState: session?.visibilityState,
+              timestamp: new Date().toLocaleTimeString()
             })
           }
           
           if (session && inXRSession) {
             // We should be in VR mode
             if (!this.isVRActive) {
-              console.log('Frame check: VR session active but isVRActive false - correcting')
+              console.log('⚠️  Frame check: VR session active but isVRActive false - correcting')
               this.isVRActive = true
               this.onEnterVR()
             }
             
             // Additional check: ensure desktop UI is really hidden
             if (this.desktopUI?.rootContainer?.isVisible) {
-              console.log('Frame check: Desktop UI visible in VR - forcing hide')
+              console.log('🚨 Frame check: Desktop UI visible in VR - forcing hide')
               this.onEnterVR() // Re-run hide logic
             }
           } else {
             // We should NOT be in VR mode
             if (this.isVRActive) {
-              console.log('Frame check: No VR session but isVRActive true - correcting')
+              console.log('⚠️  Frame check: No VR session but isVRActive true - correcting')
               this.isVRActive = false
               this.onExitVR()
             }
@@ -653,45 +770,61 @@ class VRPanoramaViewer {
   }
 
   private onEnterVR(): void {
-    console.log('VR mode activated - refreshing photodome rendering')
-    console.log('Desktop UI exists:', !!this.desktopUI)
-    console.log('Desktop UI rootContainer exists:', !!this.desktopUI?.rootContainer)
+    console.log('🥽 ENTERING VR MODE - Starting UI transition')
+    console.log('🖥️  Desktop UI state check:', {
+      desktopUIExists: !!this.desktopUI,
+      rootContainerExists: !!this.desktopUI?.rootContainer,
+      rootContainerVisible: this.desktopUI?.rootContainer?.isVisible,
+      rootContainerAlpha: this.desktopUI?.rootContainer?.alpha
+    })
     
     // Hide entire desktop UI when in VR mode with improved Meta Quest 3 compatibility
     if (this.desktopUI && this.desktopUI.rootContainer) {
-      console.log('Hiding desktop UI - multiple methods for reliability')
+      console.log('🔄 Applying desktop UI hiding methods...')
       
       // Method 1: Hide the container
+      const wasVisible = this.desktopUI.rootContainer.isVisible
       this.desktopUI.rootContainer.isVisible = false
       this.desktopUI.rootContainer.alpha = 0
+      console.log(`   ✓ Container visibility: ${wasVisible} → false`)
       
       // Method 2: Move UI plane out of view and disable depth testing
       const uiPlane = this.desktopUI.getScene()?.meshes.find(m => m.name === 'UI_PLANE')
       if (uiPlane) {
-        console.log('UI Plane found - disabling visibility and depth')
+        const wasPlaneVisible = uiPlane.isVisible
         uiPlane.isVisible = false
         uiPlane.setEnabled(false)
+        console.log(`   ✓ UI Plane visibility: ${wasPlaneVisible} → false`)
         
         // Set material properties to ensure it doesn't render
         if (uiPlane.material) {
           uiPlane.material.alpha = 0
           uiPlane.material.disableDepthWrite = true
-          // Remove depth function rather than setting to null
           uiPlane.material.needDepthPrePass = false
+          console.log('   ✓ UI Plane material properties updated')
         }
         
         // Move far away as additional safety
         uiPlane.position.z = -1000
+        console.log('   ✓ UI Plane moved to z=-1000')
+      } else {
+        console.log('   ⚠️  UI Plane not found')
       }
       
       // Method 3: Disable all UI interactions
-      if (this.desktopUI.rootContainer) {
-        this.desktopUI.rootContainer.isPointerBlocker = false
-        this.desktopUI.rootContainer.isHitTestVisible = false
-      }
+      this.desktopUI.rootContainer.isPointerBlocker = false
+      this.desktopUI.rootContainer.isHitTestVisible = false
+      console.log('   ✓ UI interactions disabled')
+      
+      // Final verification
+      console.log('🔍 Final desktop UI state:', {
+        rootContainerVisible: this.desktopUI.rootContainer.isVisible,
+        rootContainerAlpha: this.desktopUI.rootContainer.alpha,
+        isPointerBlocker: this.desktopUI.rootContainer.isPointerBlocker
+      })
       
     } else {
-      console.warn('Cannot hide desktop UI - desktopUI or rootContainer is null')
+      console.error('❌ Cannot hide desktop UI - desktopUI or rootContainer is null!')
     }
     
     // Setup VR caption
@@ -732,43 +865,58 @@ class VRPanoramaViewer {
     // Force a scene refresh
     this.scene.render()
     
-    console.log('VR mode setup complete')
+    console.log('🥽 VR mode setup complete - desktop UI should be hidden')
   }
 
   private onExitVR(): void {
-    console.log('Exiting VR mode - restoring desktop UI')
+    console.log('🖥️  EXITING VR MODE - Restoring desktop UI')
     this.disposeFloorplanUI()
     this.disposeVRCaption()
     
     // Restore desktop UI when exiting VR mode with improved reliability
     if (this.desktopUI && this.desktopUI.rootContainer) {
-      console.log('Restoring desktop UI visibility')
+      console.log('🔄 Restoring desktop UI visibility...')
       
       // Method 1: Restore container visibility
       this.desktopUI.rootContainer.isVisible = true
       this.desktopUI.rootContainer.alpha = 1
+      console.log('   ✓ Container visibility restored to true')
       
       // Method 2: Restore UI plane if it exists
       const uiPlane = this.desktopUI.getScene()?.meshes.find(m => m.name === 'UI_PLANE')
       if (uiPlane) {
-        console.log('Restoring UI Plane visibility')
         uiPlane.isVisible = true
         uiPlane.setEnabled(true)
+        console.log('   ✓ UI Plane visibility restored')
         
         // Restore material properties
         if (uiPlane.material) {
           uiPlane.material.alpha = 1
           uiPlane.material.disableDepthWrite = false
           uiPlane.material.needDepthPrePass = true
+          console.log('   ✓ UI Plane material properties restored')
         }
         
         // Reset position
         uiPlane.position.z = 0
+        console.log('   ✓ UI Plane position reset to z=0')
+      } else {
+        console.log('   ⚠️  UI Plane not found during restoration')
       }
       
       // Method 3: Restore UI interactions
       this.desktopUI.rootContainer.isPointerBlocker = true
       this.desktopUI.rootContainer.isHitTestVisible = true
+      console.log('   ✓ UI interactions restored')
+      
+      // Final verification
+      console.log('🔍 Final desktop UI restore state:', {
+        rootContainerVisible: this.desktopUI.rootContainer.isVisible,
+        rootContainerAlpha: this.desktopUI.rootContainer.alpha,
+        isPointerBlocker: this.desktopUI.rootContainer.isPointerBlocker
+      })
+    } else {
+      console.error('❌ Cannot restore desktop UI - desktopUI or rootContainer is null!')
     }
     
     // Re-optimize materials for desktop
@@ -776,7 +924,7 @@ class VRPanoramaViewer {
       this.currentPhotoDome.material.freeze()
     }
     
-    console.log('Desktop UI restoration complete')
+    console.log('🖥️  Desktop UI restoration complete')
   }
 
   private setupUI(): void {

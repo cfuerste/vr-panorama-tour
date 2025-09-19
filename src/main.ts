@@ -65,6 +65,9 @@ class VRPanoramaViewer {
   private floorplanCurrentLocationMarker: Control | null = null
   private floorplanViewDirectionIndicator: Control | null = null
   private floorplanUpdateObserver: any = null
+  private selectedFloor: string = 'EG' // Currently selected floor for floorplan view
+  private floorplanImage: Image | null = null // Reference to floorplan image for updating
+  private floorSwitchButtons: Control[] = [] // Array to store floor switch buttons
   private isVRActive = false
   private infoText: TextBlock | null = null
   private enterVRButton: Button | null = null
@@ -1098,32 +1101,41 @@ class VRPanoramaViewer {
     const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { width: 0.3, height: 0.2 }, this.scene)
     floorplanPlane.parent = this.floorplanContainer
     
+    // Fix flipped orientation by rotating the plane
+    floorplanPlane.rotation.y = Math.PI // 180 degree rotation to unflip
+    
     if (!this.isVREmulationMode) {
       // Only offset when attached to controller
       floorplanPlane.position = new Vector3(-0.2, 0, 0.1)
-      floorplanPlane.rotation = new Vector3(0, Math.PI / 6, 0)
+      // Combine the flip correction with the controller rotation
+      floorplanPlane.rotation = new Vector3(0, Math.PI + Math.PI / 6, 0)
     }
 
     // Load appropriate floorplan image
     const currentFloor = this.panoramaData[this.currentPanorama]?.floor || 'EG'
+    this.selectedFloor = currentFloor // Initialize selected floor
     const basePath = import.meta.env.BASE_URL
-    const floorplanPath = `${basePath}ui/floorplan_${currentFloor}.png`
+    const floorplanPath = `${basePath}ui/floorplan_${this.selectedFloor}.png`
     
     console.log('Loading floorplan:', floorplanPath)
     
     this.floorplanUI = AdvancedDynamicTexture.CreateForMesh(floorplanPlane)
     
     const background = new Rectangle()
+    background.name = 'background' // Add name for easy reference
     background.background = 'rgba(255, 255, 255, 0.9)'
     background.cornerRadius = 10
     this.floorplanUI.addControl(background)
     
-    const floorplanImage = new Image('floorplan', floorplanPath)
-    floorplanImage.stretch = Image.STRETCH_UNIFORM
-    background.addControl(floorplanImage)
+    this.floorplanImage = new Image('floorplan', floorplanPath)
+    this.floorplanImage.stretch = Image.STRETCH_UNIFORM
+    background.addControl(this.floorplanImage)
 
-    // Add interactive position markers
-    this.addFloorplanPositionMarkers(background, currentFloor)
+    // Add floor switching buttons
+    this.addFloorSwitchButtons(background)
+
+    // Add interactive position markers for all floors (with blending)
+    this.addFloorplanPositionMarkers(background, this.selectedFloor)
 
     // Setup continuous update for view direction
     this.setupFloorplanUpdateObserver()
@@ -1172,32 +1184,214 @@ class VRPanoramaViewer {
     this.updateFloorplanMarkers()
   }
 
+  private addFloorSwitchButtons(background: Rectangle): void {
+    console.log('Adding floor switch buttons')
+    
+    const floors = ['UG', 'EG', 'OG', 'DA']
+    const buttonWidth = 40
+    const buttonHeight = 25
+    const spacing = 5
+    const startX = -((floors.length * buttonWidth + (floors.length - 1) * spacing) / 2)
+    
+    floors.forEach((floor, index) => {
+      const button = new Button(`floor_button_${floor}`)
+      button.widthInPixels = buttonWidth
+      button.heightInPixels = buttonHeight
+      button.cornerRadius = 5
+      button.thickness = 2
+      
+      // Style based on whether this is the selected floor
+      if (floor === this.selectedFloor) {
+        button.background = 'rgba(0, 150, 255, 0.9)' // Blue for selected
+        button.color = 'white'
+      } else {
+        button.background = 'rgba(200, 200, 200, 0.7)' // Gray for unselected
+        button.color = 'black'
+      }
+      
+      // Position buttons at the top of the floorplan
+      button.leftInPixels = startX + (index * (buttonWidth + spacing))
+      button.topInPixels = -140 // Position at top
+      button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
+      button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
+      
+      // Add text label
+      const label = new TextBlock()
+      label.text = floor
+      label.color = button.color
+      label.fontSize = '12px'
+      label.fontWeight = 'bold'
+      button.addControl(label)
+      
+      // Add click handler
+      button.onPointerClickObservable.add(() => {
+        this.switchToFloor(floor)
+      })
+      
+      background.addControl(button)
+      this.floorSwitchButtons.push(button)
+      
+      console.log(`Added floor button for ${floor}`)
+    })
+  }
+
+  private switchToFloor(floor: string): void {
+    console.log(`Switching floorplan to floor: ${floor}`)
+    
+    if (this.selectedFloor === floor) {
+      console.log(`Already viewing floor ${floor}`)
+      return
+    }
+    
+    this.selectedFloor = floor
+    
+    // Update floorplan image
+    if (this.floorplanImage) {
+      const basePath = import.meta.env.BASE_URL
+      const floorplanPath = `${basePath}ui/floorplan_${floor}.png`
+      this.floorplanImage.source = floorplanPath
+      console.log(`Updated floorplan image to: ${floorplanPath}`)
+    }
+    
+    // Update button styling
+    this.updateFloorSwitchButtons()
+    
+    // Update markers with blending for the new floor
+    const background = this.floorplanUI?.getControlByName('background') as Rectangle
+    if (background) {
+      this.addFloorplanPositionMarkersWithBlending(background, floor)
+    }
+  }
+
+  private updateFloorSwitchButtons(): void {
+    this.floorSwitchButtons.forEach(control => {
+      const button = control as Button
+      const buttonName = button.name || ''
+      const floor = buttonName.replace('floor_button_', '')
+      
+      if (floor === this.selectedFloor) {
+        button.background = 'rgba(0, 150, 255, 0.9)' // Blue for selected
+        button.color = 'white'
+        // Update text color if button has children
+        if (button.children && button.children.length > 0) {
+          const label = button.children[0] as TextBlock
+          if (label) label.color = 'white'
+        }
+      } else {
+        button.background = 'rgba(200, 200, 200, 0.7)' // Gray for unselected
+        button.color = 'black'
+        // Update text color if button has children
+        if (button.children && button.children.length > 0) {
+          const label = button.children[0] as TextBlock
+          if (label) label.color = 'black'
+        }
+      }
+    })
+  }
+
   private addFloorplanPositionMarkers(background: Rectangle, currentFloor: string): void {
-    console.log('Adding interactive position markers to floorplan for floor:', currentFloor)
+    // Use the new blending method
+    this.addFloorplanPositionMarkersWithBlending(background, currentFloor)
+  }
+
+  private addFloorplanPositionMarkersWithBlending(background: Rectangle, selectedFloor: string): void {
+    console.log('Adding interactive position markers with floor blending for selected floor:', selectedFloor)
     
     // Clear existing markers
     this.clearFloorplanMarkers()
     
-    // Get all panoramas on the same floor
-    const floorPanoramas = Object.entries(this.panoramaData).filter(([_, data]) => data.floor === currentFloor)
+    // Get ALL panoramas (not just current floor) for blending
+    const allPanoramas = Object.entries(this.panoramaData)
     
-    console.log(`Found ${floorPanoramas.length} panoramas on floor ${currentFloor}:`)
-    floorPanoramas.forEach(([, data]) => {
-      console.log(`  - ${data.name}: (${data.map.x}, ${data.map.y})`)
+    console.log(`Found ${allPanoramas.length} total panoramas across all floors`)
+    
+    // Add position markers for each panorama with blending
+    allPanoramas.forEach(([panoramaId, data]) => {
+      this.createFloorplanPositionMarkerWithBlending(background, panoramaId, data, selectedFloor)
     })
-    
-    // Add position markers for each panorama on this floor
-    floorPanoramas.forEach(([panoramaId, data]) => {
-      this.createFloorplanPositionMarker(background, panoramaId, data)
-    })
-    
+
     // Add view direction indicator for current location
     this.createViewDirectionIndicator(background)
     
-    console.log('Floorplan markers setup complete')
+    console.log('Floorplan markers setup complete with floor blending')
   }
 
-  private adjustCoordinatesForAspectRatio(x: number, y: number): { x: number; y: number } {
+  private createFloorplanPositionMarkerWithBlending(background: Rectangle, panoramaId: string, data: PanoramaData, selectedFloor: string): void {
+    // Create clickable position marker
+    const marker = new Button(`marker_${panoramaId}`)
+    
+    // Determine marker properties based on floor relationship
+    const isCurrent = panoramaId === this.currentPanorama
+    const isSelectedFloor = data.floor === selectedFloor
+    
+    if (isCurrent) {
+      // Current location marker - always prominent
+      marker.widthInPixels = 20
+      marker.heightInPixels = 20
+      marker.cornerRadius = 10
+      marker.thickness = 3
+      marker.background = 'rgba(255, 0, 0, 0.9)' // Bright red for current location
+      marker.color = 'rgba(255, 255, 0, 1)' // Yellow border
+      // Store reference for updating
+      this.floorplanCurrentLocationMarker = marker
+    } else if (isSelectedFloor) {
+      // Markers on selected floor - normal visibility
+      marker.widthInPixels = 14
+      marker.heightInPixels = 14
+      marker.cornerRadius = 7
+      marker.thickness = 2
+      marker.background = 'rgba(0, 150, 255, 0.8)' // Blue for same floor
+      marker.color = 'rgba(255, 255, 255, 0.9)' // White border
+    } else {
+      // Markers on other floors - dimmed/blended
+      marker.widthInPixels = 10
+      marker.heightInPixels = 10
+      marker.cornerRadius = 5
+      marker.thickness = 1
+      marker.background = 'rgba(150, 150, 150, 0.4)' // Dimmed gray for other floors
+      marker.color = 'rgba(200, 200, 200, 0.5)' // Light gray border
+    }
+    
+    // Add hover effects for better interaction (only for clickable markers)
+    if (isCurrent || isSelectedFloor) {
+      marker.pointerEnterAnimation = () => {
+        marker.scaleX = 1.2
+        marker.scaleY = 1.2
+      }
+      marker.pointerOutAnimation = () => {
+        marker.scaleX = 1.0
+        marker.scaleY = 1.0
+      }
+    }
+    
+    // Apply aspect ratio correction to coordinates
+    const adjustedCoords = this.adjustCoordinatesForAspectRatio(data.map.x, data.map.y)
+    
+    // Use percentage positioning for better scaling
+    marker.left = `${(adjustedCoords.x * 100)}%`
+    marker.top = `${(adjustedCoords.y * 100)}%`
+    marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
+    marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    
+    // Add click handler for navigation
+    marker.onPointerClickObservable.add(() => {
+      if (!isCurrent) {
+        console.log(`Navigating to ${data.name} on floor ${data.floor} via floorplan click`)
+        this.navigateToPanorama(panoramaId)
+      } else {
+        console.log(`Already at ${data.name}`)
+      }
+    })
+    
+    // Add to background and store reference
+    background.addControl(marker)
+    this.floorplanPositionMarkers.push(marker)
+    
+    console.log(`Added position marker for ${data.name} (${data.floor}):`)
+    console.log(`  - Is current location: ${isCurrent}`)
+    console.log(`  - Is on selected floor: ${isSelectedFloor}`)
+    console.log(`  - Floor: ${data.floor} (selected: ${selectedFloor})`)
+  }  private adjustCoordinatesForAspectRatio(x: number, y: number): { x: number; y: number } {
     // Floorplan images are 1000x751 pixels (aspect ratio ~1.33:1)
     const floorplanImageWidth = 1000
     const floorplanImageHeight = 751
@@ -1217,73 +1411,6 @@ class VRPanoramaViewer {
     }
     
     return { x: adjustedX, y: adjustedY }
-  }
-
-  private createFloorplanPositionMarker(background: Rectangle, panoramaId: string, data: PanoramaData): void {
-    // Create clickable position marker
-    const marker = new Button(`marker_${panoramaId}`)
-    
-    // Different style for current location vs other locations
-    const isCurrent = panoramaId === this.currentPanorama
-    if (isCurrent) {
-      // Larger, more prominent current location marker
-      marker.widthInPixels = 20
-      marker.heightInPixels = 20
-      marker.cornerRadius = 10
-      marker.thickness = 3
-      marker.background = 'rgba(255, 0, 0, 0.9)' // Bright red for current location
-      marker.color = 'rgba(255, 255, 0, 1)' // Yellow border
-      // Store reference for updating
-      this.floorplanCurrentLocationMarker = marker
-    } else {
-      // Smaller markers for other locations
-      marker.widthInPixels = 14
-      marker.heightInPixels = 14
-      marker.cornerRadius = 7
-      marker.thickness = 2
-      marker.background = 'rgba(0, 150, 255, 0.8)' // Blue for other locations
-      marker.color = 'rgba(255, 255, 255, 0.9)' // White border
-    }
-    
-    // Add hover effects for better interaction
-    marker.pointerEnterAnimation = () => {
-      marker.scaleX = 1.2
-      marker.scaleY = 1.2
-    }
-    marker.pointerOutAnimation = () => {
-      marker.scaleX = 1.0
-      marker.scaleY = 1.0
-    }
-    
-    // Apply aspect ratio correction to coordinates
-    const adjustedCoords = this.adjustCoordinatesForAspectRatio(data.map.x, data.map.y)
-    
-    // Use percentage positioning for better scaling
-    marker.left = `${(adjustedCoords.x * 100)}%`
-    marker.top = `${(adjustedCoords.y * 100)}%`
-    marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
-    marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-    
-    // Add click handler for navigation (for all markers, including current)
-    marker.onPointerClickObservable.add(() => {
-      if (!isCurrent) {
-        console.log(`Navigating to ${data.name} via floorplan click`)
-        this.navigateToPanorama(panoramaId)
-      } else {
-        console.log(`Already at ${data.name}`)
-      }
-    })
-    
-    // Add to background and store reference
-    background.addControl(marker)
-    this.floorplanPositionMarkers.push(marker)
-    
-    console.log(`Added position marker for ${data.name}:`)
-    console.log(`  - Normalized coords: (${data.map.x}, ${data.map.y})`)
-    console.log(`  - Adjusted coords: (${adjustedCoords.x}, ${adjustedCoords.y})`)
-    console.log(`  - Percentage position: (${(adjustedCoords.x * 100).toFixed(1)}%, ${(adjustedCoords.y * 100).toFixed(1)}%)`)
-    console.log(`  - Aspect ratio correction applied: 1000x751 -> letterboxed in square container`)
-    console.log(`  - Is current location: ${isCurrent}`)
   }
 
   private createViewDirectionIndicator(background: Rectangle): void {
@@ -1330,9 +1457,8 @@ class VRPanoramaViewer {
       return
     }
     
-    // Get the current floor and recreate all markers with updated styling
-    const currentFloor = currentData.floor
-    this.addFloorplanPositionMarkers(background, currentFloor)
+    // Recreate all markers with updated styling using the currently selected floor
+    this.addFloorplanPositionMarkersWithBlending(background, this.selectedFloor)
     
     // Update view direction indicator position if it exists
     if (this.floorplanViewDirectionIndicator) {
@@ -1342,7 +1468,7 @@ class VRPanoramaViewer {
       this.updateViewDirection(this.floorplanViewDirectionIndicator)
     }
     
-    console.log(`Updated floorplan markers for current location: ${currentData.name}`)
+    console.log(`Updated floorplan markers for current location: ${currentData.name} on selected floor: ${this.selectedFloor}`)
   }
 
   private updateViewDirection(indicator: Control): void {
@@ -1379,6 +1505,15 @@ class VRPanoramaViewer {
       marker.dispose()
     })
     this.floorplanPositionMarkers = []
+    
+    // Clear floor switch buttons
+    this.floorSwitchButtons.forEach(button => {
+      if (button.parent) {
+        button.parent.removeControl(button)
+      }
+      button.dispose()
+    })
+    this.floorSwitchButtons = []
     
     // Clear current location marker
     if (this.floorplanCurrentLocationMarker) {

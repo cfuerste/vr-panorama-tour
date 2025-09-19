@@ -528,78 +528,9 @@ class VRPanoramaViewer {
           initialVRState: this.isVRActive,
           isInXRSession: this.xrHelper.baseExperience.sessionManager?.inXRSession || false
         })
-        // Enable hand tracking with comprehensive fallback error handling
-        try {
-          console.log('Attempting to enable hand tracking...')
-          
-          // First, check if hand tracking is supported
-          if ('XRSession' in window && navigator.xr && 'requestSession' in navigator.xr) {
-            const handTrackingOptions = {
-              // Disable external hand mesh loading to prevent CDN failures
-              disableHandMesh: true,
-              // Use simple geometric hand representation instead  
-              useSimpleHandMesh: true,
-              // Additional safety options
-              handMeshRiggingNeeded: false,
-              enableHandMeshes: false
-            }
-            
-            const handTrackingFeature = this.xrHelper.baseExperience.featuresManager.enableFeature(
-              'hand-tracking' as any,
-              'latest',
-              handTrackingOptions
-            )
-            
-            if (handTrackingFeature) {
-              console.log('Hand tracking enabled successfully with simple mesh')
-              
-              // Add error handling for hand tracking events (with type safety)
-              try {
-                const handFeature = handTrackingFeature as any
-                if (handFeature.onHandAddedObservable) {
-                  handFeature.onHandAddedObservable.add((hand: any) => {
-                    console.log('Hand added:', hand.handness)
-                  })
-                }
-                
-                if (handFeature.onHandRemovedObservable) {
-                  handFeature.onHandRemovedObservable.add((hand: any) => {
-                    console.log('Hand removed:', hand.handness)
-                  })
-                }
-              } catch (observableError) {
-                console.log('Hand tracking observables not available:', observableError)
-              }
-            } else {
-              console.warn('Hand tracking feature could not be enabled - feature returned null')
-            }
-          } else {
-            console.log('WebXR hand tracking not supported in this browser/device')
-          }
-        } catch (handTrackingError) {
-          console.warn('Hand tracking failed to initialize:', handTrackingError)
-          console.log('Continuing without hand tracking - controller input will still work')
-          
-          // Ensure we don't try to load external hand meshes
-          if (this.xrHelper.baseExperience.featuresManager) {
-            try {
-              // Disable any hand mesh loading attempts
-              this.xrHelper.baseExperience.featuresManager.disableFeature('hand-tracking' as any)
-            } catch (disableError) {
-              console.log('Hand tracking was not enabled to disable')
-            }
-          }
-        }
-
-        // Enable controller pointer selection
-        this.xrHelper.baseExperience.featuresManager.enableFeature(
-          'pointer-selection' as any,
-          'stable',
-          { 
-            xrInput: this.xrHelper.input,
-            enablePointerSelectionOnAllControllers: true
-          }
-        )
+        
+        // Try initial feature setup (may fail, will retry in VR session)
+        this.tryInitialFeatureSetup()
 
         // Setup VR state change handlers with enhanced debugging for Meta Quest 3
         const sessionManager = this.xrHelper.baseExperience.sessionManager
@@ -626,6 +557,11 @@ class VRPanoramaViewer {
           if (isImmersiveVR) {
             console.log('✅ Immersive VR session detected - triggering VR mode')
             this.isVRActive = true
+            
+            // IMPORTANT: Try to setup WebXR features AFTER session starts
+            // This is when features like hand tracking become available
+            this.setupVRFeatures()
+            
             this.onEnterVR()
             
             // Setup direct session event listeners for reliable state tracking
@@ -767,6 +703,146 @@ class VRPanoramaViewer {
     } catch (error) {
       console.warn('WebXR not supported or failed to initialize:', error)
     }
+  }
+
+  // Setup VR features AFTER VR session starts - when features become available
+  private setupVRFeatures(): void {
+    if (!this.xrHelper?.baseExperience?.featuresManager) {
+      console.log('❌ Features manager not available')
+      return
+    }
+
+    console.log('🔧 Setting up VR features AFTER session start...')
+
+    // Try hand tracking again now that we're in VR
+    try {
+      console.log('🖐️  Attempting to enable hand tracking in VR session...')
+      
+      const handTrackingOptions = {
+        disableHandMesh: true,
+        useSimpleHandMesh: true,
+        handMeshRiggingNeeded: false,
+        enableHandMeshes: false
+      }
+      
+      const handTrackingFeature = this.xrHelper.baseExperience.featuresManager.enableFeature(
+        'hand-tracking' as any,
+        'latest',
+        handTrackingOptions
+      )
+      
+      if (handTrackingFeature) {
+        console.log('✅ Hand tracking enabled successfully in VR session')
+        
+        try {
+          const handFeature = handTrackingFeature as any
+          if (handFeature.onHandAddedObservable) {
+            handFeature.onHandAddedObservable.add((hand: any) => {
+              console.log('🖐️  Hand added in VR:', hand.handness)
+            })
+          }
+          
+          if (handFeature.onHandRemovedObservable) {
+            handFeature.onHandRemovedObservable.add((hand: any) => {
+              console.log('🖐️  Hand removed in VR:', hand.handness)
+            })
+          }
+        } catch (observableError) {
+          console.log('Hand tracking observables not available in VR session:', observableError)
+        }
+      } else {
+        console.log('⚠️  Hand tracking still not available in VR session')
+      }
+    } catch (handTrackingError) {
+      console.log('⚠️  Hand tracking failed in VR session:', handTrackingError)
+    }
+
+    // Try pointer selection again now that we're in VR
+    try {
+      console.log('👆 Attempting to enable pointer selection in VR session...')
+      
+      const pointerFeature = this.xrHelper.baseExperience.featuresManager.enableFeature(
+        'pointer-selection' as any,
+        'stable',
+        { 
+          xrInput: this.xrHelper.input,
+          enablePointerSelectionOnAllControllers: true
+        }
+      )
+      
+      if (pointerFeature) {
+        console.log('✅ Pointer selection enabled successfully in VR session')
+      } else {
+        console.log('⚠️  Pointer selection still not available in VR session')
+      }
+    } catch (pointerError) {
+      console.log('⚠️  Pointer selection failed in VR session:', pointerError)
+    }
+
+    console.log('🔧 VR features setup complete')
+  }
+
+  // Try initial feature setup (before VR session) - may fail, will retry later
+  private tryInitialFeatureSetup(): void {
+    console.log('🔄 Attempting initial feature setup (pre-VR session)...')
+    
+    // Try hand tracking (may not be available yet)
+    try {
+      console.log('Attempting to enable hand tracking...')
+      
+      if ('XRSession' in window && navigator.xr && 'requestSession' in navigator.xr) {
+        const handTrackingOptions = {
+          disableHandMesh: true,
+          useSimpleHandMesh: true,
+          handMeshRiggingNeeded: false,
+          enableHandMeshes: false
+        }
+        
+        const handTrackingFeature = this.xrHelper?.baseExperience?.featuresManager?.enableFeature(
+          'hand-tracking' as any,
+          'latest',
+          handTrackingOptions
+        )
+        
+        if (handTrackingFeature) {
+          console.log('✅ Hand tracking enabled in initial setup')
+        } else {
+          console.log('ℹ️  Hand tracking not available in initial setup - will retry in VR session')
+        }
+      } else {
+        console.log('ℹ️  WebXR hand tracking not supported in this browser/device')
+      }
+    } catch (handTrackingError) {
+      const errorMessage = handTrackingError instanceof Error ? handTrackingError.message : String(handTrackingError)
+      console.log('ℹ️  Hand tracking failed in initial setup (expected):', errorMessage)
+      console.log('Will retry when VR session starts')
+    }
+
+    // Try pointer selection (may not be available yet)
+    try {
+      console.log('Attempting to enable pointer selection...')
+      
+      const pointerFeature = this.xrHelper?.baseExperience?.featuresManager?.enableFeature(
+        'pointer-selection' as any,
+        'stable',
+        { 
+          xrInput: this.xrHelper?.input,
+          enablePointerSelectionOnAllControllers: true
+        }
+      )
+      
+      if (pointerFeature) {
+        console.log('✅ Pointer selection enabled in initial setup')
+      } else {
+        console.log('ℹ️  Pointer selection not available in initial setup - will retry in VR session')
+      }
+    } catch (pointerError) {
+      const errorMessage = pointerError instanceof Error ? pointerError.message : String(pointerError)
+      console.log('ℹ️  Pointer selection failed in initial setup (expected):', errorMessage)
+      console.log('Will retry when VR session starts')
+    }
+
+    console.log('🔄 Initial feature setup complete - errors are expected and will be retried')
   }
 
   private onEnterVR(): void {

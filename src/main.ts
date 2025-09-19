@@ -272,6 +272,9 @@ class VRPanoramaViewer {
       // Update VR caption if in VR mode
       this.updateVRCaption()
 
+      // Update VR caption in emulation mode if active
+      this.updateVRCaptionEmulation()
+
       // Update info text
       this.updateInfoText()
 
@@ -1179,6 +1182,10 @@ class VRPanoramaViewer {
     captionPlane.parent = this.vrCaptionContainer
     captionPlane.billboardMode = Mesh.BILLBOARDMODE_ALL // Always face the user
     
+    // Make plane non-pickable for click-through functionality
+    captionPlane.isPickable = false
+    captionPlane.isBlocker = false
+    
     // Create caption UI with high resolution for Meta Quest 3
     this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane, 1024, 512)
     
@@ -1189,7 +1196,7 @@ class VRPanoramaViewer {
     
     // Create text directly without background
     const captionText = new TextBlock('vrCaptionText')
-    captionText.text = `Aktueller Standort:\n\n${this.getCurrentPanoramaDisplayName()}`
+    captionText.text = `Aktueller Standort:\n\n${this.getCurrentLocationLabel()}`
     captionText.color = 'white'
     captionText.fontSize = 32
     captionText.fontFamily = 'Arial'
@@ -1281,25 +1288,7 @@ class VRPanoramaViewer {
     this.vrCaptionUI.rootContainer.isPointerBlocker = false
     this.vrCaptionUI.rootContainer.isHitTestVisible = false
     
-    // Create background
-    const background = new Rectangle('vrCaptionBackground')
-    background.background = 'rgba(0, 0, 0, 0'
-    background.cornerRadius = 10
-    background.thickness = 0  // Remove frame border
-    background.adaptWidthToChildren = true
-    background.adaptHeightToChildren = true
-    background.paddingTopInPixels = 12
-    background.paddingBottomInPixels = 12
-    background.paddingLeftInPixels = 16
-    background.paddingRightInPixels = 16
-    
-    // Make background non-interactive
-    background.isPointerBlocker = false
-    background.isHitTestVisible = false
-    
-    this.vrCaptionUI.addControl(background)
-    
-    // Create text
+    // Create text directly without background
     const captionText = new TextBlock('vrCaptionText')
     captionText.text = `Aktueller Standort:\n\n${this.getCurrentLocationLabel()}`
     captionText.color = 'white'
@@ -1310,11 +1299,12 @@ class VRPanoramaViewer {
     captionText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
     captionText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
     
-    // Make text non-interactive
+    // Make text non-interactive for click-through
     captionText.isPointerBlocker = false
     captionText.isHitTestVisible = false
     
-    background.addControl(captionText)
+    // Add text directly to UI (no background container)
+    this.vrCaptionUI.addControl(captionText)
     
     // Register update function to keep caption in front of camera
     this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
@@ -1468,6 +1458,20 @@ class VRPanoramaViewer {
     this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
       this.updateVRCaptionPosition()
     })
+  }
+
+  // Update VR caption text in emulation mode when location changes
+  private updateVRCaptionEmulation(): void {
+    if (!this.isVREmulationMode) return
+
+    // If VR caption UI exists in emulation mode, update the text
+    if (this.vrCaptionUI) {
+      const captionText = this.vrCaptionUI.getControlByName('vrCaptionText') as TextBlock
+      if (captionText) {
+        captionText.text = `Aktueller Standort:\n\n${this.getCurrentLocationLabel()}\n(EMULATION MODE)`
+        console.log('Updated VR caption in emulation mode:', this.getCurrentLocationLabel())
+      }
+    }
   }
 
   // Floorplan setup for emulation mode (bypasses isVRActive check)

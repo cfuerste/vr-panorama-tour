@@ -1188,30 +1188,30 @@ class VRPanoramaViewer {
     console.log('Adding floor switch buttons')
     
     const floors = ['UG', 'EG', 'OG', 'DA']
-    const buttonWidth = 40
-    const buttonHeight = 25
-    const spacing = 5
+    const buttonWidth = 50  // Increased width for better visibility
+    const buttonHeight = 30 // Increased height for better visibility
+    const spacing = 8
     const startX = -((floors.length * buttonWidth + (floors.length - 1) * spacing) / 2)
     
     floors.forEach((floor, index) => {
       const button = new Button(`floor_button_${floor}`)
       button.widthInPixels = buttonWidth
       button.heightInPixels = buttonHeight
-      button.cornerRadius = 5
-      button.thickness = 2
+      button.cornerRadius = 8
+      button.thickness = 3
       
       // Style based on whether this is the selected floor
       if (floor === this.selectedFloor) {
-        button.background = 'rgba(0, 150, 255, 0.9)' // Blue for selected
+        button.background = 'rgba(0, 150, 255, 0.95)' // Brighter blue for selected
         button.color = 'white'
       } else {
-        button.background = 'rgba(200, 200, 200, 0.7)' // Gray for unselected
-        button.color = 'black'
+        button.background = 'rgba(80, 80, 80, 0.9)' // Darker gray for better contrast
+        button.color = 'white'
       }
       
-      // Position buttons at the top of the floorplan
+      // Position buttons at the top of the floorplan, but within visible area
       button.leftInPixels = startX + (index * (buttonWidth + spacing))
-      button.topInPixels = -140 // Position at top
+      button.topInPixels = -60 // Position closer to ensure visibility
       button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
       button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
       
@@ -1219,20 +1219,23 @@ class VRPanoramaViewer {
       const label = new TextBlock()
       label.text = floor
       label.color = button.color
-      label.fontSize = '12px'
+      label.fontSize = '14px' // Increased font size
       label.fontWeight = 'bold'
       button.addControl(label)
       
       // Add click handler
       button.onPointerClickObservable.add(() => {
+        console.log(`Floor button ${floor} clicked`)
         this.switchToFloor(floor)
       })
       
       background.addControl(button)
       this.floorSwitchButtons.push(button)
       
-      console.log(`Added floor button for ${floor}`)
+      console.log(`Added floor button for ${floor} at position (${button.leftInPixels}, ${button.topInPixels})`)
     })
+    
+    console.log(`Added ${floors.length} floor switch buttons`)
   }
 
   private switchToFloor(floor: string): void {
@@ -1270,7 +1273,7 @@ class VRPanoramaViewer {
       const floor = buttonName.replace('floor_button_', '')
       
       if (floor === this.selectedFloor) {
-        button.background = 'rgba(0, 150, 255, 0.9)' // Blue for selected
+        button.background = 'rgba(0, 150, 255, 0.95)' // Brighter blue for selected
         button.color = 'white'
         // Update text color if button has children
         if (button.children && button.children.length > 0) {
@@ -1278,12 +1281,12 @@ class VRPanoramaViewer {
           if (label) label.color = 'white'
         }
       } else {
-        button.background = 'rgba(200, 200, 200, 0.7)' // Gray for unselected
-        button.color = 'black'
+        button.background = 'rgba(80, 80, 80, 0.9)' // Darker gray for better contrast
+        button.color = 'white'
         // Update text color if button has children
         if (button.children && button.children.length > 0) {
           const label = button.children[0] as TextBlock
-          if (label) label.color = 'black'
+          if (label) label.color = 'white'
         }
       }
     })
@@ -1402,7 +1405,7 @@ class VRPanoramaViewer {
     let adjustedX = x
     let adjustedY = y
     
-    const containerAspectRatio = 1.0 // Square container
+    const containerAspectRatio = 1.5 // Square container
     if (aspectRatio > containerAspectRatio) {
       // Image is wider - letterboxed (black bars top/bottom)
       const imageHeightInContainer = 1.0 / aspectRatio // Height ratio in container

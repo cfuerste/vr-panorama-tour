@@ -1095,7 +1095,7 @@ class VRPanoramaViewer {
     }
     
     // Create floorplan plane
-    const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { size: 0.3 }, this.scene)
+    const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { width: 0.3, height: 0.2 }, this.scene)
     floorplanPlane.parent = this.floorplanContainer
     
     if (!this.isVREmulationMode) {
@@ -1173,7 +1173,7 @@ class VRPanoramaViewer {
   }
 
   private addFloorplanPositionMarkers(background: Rectangle, currentFloor: string): void {
-    console.log('Adding interactive position markers to floorplan')
+    console.log('Adding interactive position markers to floorplan for floor:', currentFloor)
     
     // Clear existing markers
     this.clearFloorplanMarkers()
@@ -1181,80 +1181,117 @@ class VRPanoramaViewer {
     // Get all panoramas on the same floor
     const floorPanoramas = Object.entries(this.panoramaData).filter(([_, data]) => data.floor === currentFloor)
     
+    console.log(`Found ${floorPanoramas.length} panoramas on floor ${currentFloor}:`)
+    floorPanoramas.forEach(([, data]) => {
+      console.log(`  - ${data.name}: (${data.map.x}, ${data.map.y})`)
+    })
+    
     // Add position markers for each panorama on this floor
     floorPanoramas.forEach(([panoramaId, data]) => {
       this.createFloorplanPositionMarker(background, panoramaId, data)
     })
     
-    // Add current location marker with view direction
-    this.createCurrentLocationMarker(background)
+    // Add view direction indicator for current location
     this.createViewDirectionIndicator(background)
+    
+    console.log('Floorplan markers setup complete')
+  }
+
+  private adjustCoordinatesForAspectRatio(x: number, y: number): { x: number; y: number } {
+    // Floorplan images are 1000x751 pixels (aspect ratio ~1.33:1)
+    const floorplanImageWidth = 1000
+    const floorplanImageHeight = 751
+    const aspectRatio = floorplanImageWidth / floorplanImageHeight // ~1.33
+    
+    // The container is square, so the image will be letterboxed
+    // Since width > height, the image will be letterboxed (black bars on top/bottom)
+    let adjustedX = x
+    let adjustedY = y
+    
+    const containerAspectRatio = 1.0 // Square container
+    if (aspectRatio > containerAspectRatio) {
+      // Image is wider - letterboxed (black bars top/bottom)
+      const imageHeightInContainer = 1.0 / aspectRatio // Height ratio in container
+      const letterboxOffset = (1.0 - imageHeightInContainer) / 2
+      adjustedY = letterboxOffset + (y * imageHeightInContainer)
+    }
+    
+    return { x: adjustedX, y: adjustedY }
   }
 
   private createFloorplanPositionMarker(background: Rectangle, panoramaId: string, data: PanoramaData): void {
     // Create clickable position marker
     const marker = new Button(`marker_${panoramaId}`)
-    marker.widthInPixels = 12
-    marker.heightInPixels = 12
-    marker.cornerRadius = 6
-    marker.thickness = 2
     
     // Different style for current location vs other locations
     const isCurrent = panoramaId === this.currentPanorama
     if (isCurrent) {
-      marker.background = 'rgba(255, 0, 0, 0.8)' // Red for current location
-      marker.color = 'white'
+      // Larger, more prominent current location marker
+      marker.widthInPixels = 20
+      marker.heightInPixels = 20
+      marker.cornerRadius = 10
+      marker.thickness = 3
+      marker.background = 'rgba(255, 0, 0, 0.9)' // Bright red for current location
+      marker.color = 'rgba(255, 255, 0, 1)' // Yellow border
+      // Store reference for updating
+      this.floorplanCurrentLocationMarker = marker
     } else {
-      marker.background = 'rgba(0, 150, 255, 0.7)' // Blue for other locations
-      marker.color = 'white'
+      // Smaller markers for other locations
+      marker.widthInPixels = 14
+      marker.heightInPixels = 14
+      marker.cornerRadius = 7
+      marker.thickness = 2
+      marker.background = 'rgba(0, 150, 255, 0.8)' // Blue for other locations
+      marker.color = 'rgba(255, 255, 255, 0.9)' // White border
     }
     
-    // Position based on map coordinates (normalize to floorplan dimensions)
-    // Assuming map coordinates are in a range that needs to be normalized to 0-1
-    marker.leftInPixels = data.map.x - 6 // Center the 12px marker
-    marker.topInPixels = data.map.y - 6
+    // Add hover effects for better interaction
+    marker.pointerEnterAnimation = () => {
+      marker.scaleX = 1.2
+      marker.scaleY = 1.2
+    }
+    marker.pointerOutAnimation = () => {
+      marker.scaleX = 1.0
+      marker.scaleY = 1.0
+    }
     
-    // Add click handler for navigation
-    if (!isCurrent) {
-      marker.onPointerClickObservable.add(() => {
+    // Apply aspect ratio correction to coordinates
+    const adjustedCoords = this.adjustCoordinatesForAspectRatio(data.map.x, data.map.y)
+    
+    // Use percentage positioning for better scaling
+    marker.left = `${(adjustedCoords.x * 100)}%`
+    marker.top = `${(adjustedCoords.y * 100)}%`
+    marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
+    marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    
+    // Add click handler for navigation (for all markers, including current)
+    marker.onPointerClickObservable.add(() => {
+      if (!isCurrent) {
         console.log(`Navigating to ${data.name} via floorplan click`)
         this.navigateToPanorama(panoramaId)
-      })
-    }
+      } else {
+        console.log(`Already at ${data.name}`)
+      }
+    })
     
     // Add to background and store reference
     background.addControl(marker)
     this.floorplanPositionMarkers.push(marker)
     
-    console.log(`Added position marker for ${data.name} at (${data.map.x}, ${data.map.y})`)
-  }
-
-  private createCurrentLocationMarker(background: Rectangle): void {
-    const currentData = this.panoramaData[this.currentPanorama]
-    if (!currentData) return
-    
-    // Create larger, more prominent current location marker
-    const currentMarker = new Rectangle(`current_location_${this.currentPanorama}`)
-    currentMarker.widthInPixels = 20
-    currentMarker.heightInPixels = 20
-    currentMarker.cornerRadius = 10
-    currentMarker.thickness = 3
-    currentMarker.background = 'rgba(255, 0, 0, 0.9)'
-    currentMarker.color = 'rgba(255, 255, 0, 1)' // Yellow border
-    
-    // Position at current location
-    currentMarker.leftInPixels = currentData.map.x - 10 // Center the 20px marker
-    currentMarker.topInPixels = currentData.map.y - 10
-    
-    background.addControl(currentMarker)
-    this.floorplanCurrentLocationMarker = currentMarker
-    
-    console.log(`Added current location marker at (${currentData.map.x}, ${currentData.map.y})`)
+    console.log(`Added position marker for ${data.name}:`)
+    console.log(`  - Normalized coords: (${data.map.x}, ${data.map.y})`)
+    console.log(`  - Adjusted coords: (${adjustedCoords.x}, ${adjustedCoords.y})`)
+    console.log(`  - Percentage position: (${(adjustedCoords.x * 100).toFixed(1)}%, ${(adjustedCoords.y * 100).toFixed(1)}%)`)
+    console.log(`  - Aspect ratio correction applied: 1000x751 -> letterboxed in square container`)
+    console.log(`  - Is current location: ${isCurrent}`)
   }
 
   private createViewDirectionIndicator(background: Rectangle): void {
     const currentData = this.panoramaData[this.currentPanorama]
     if (!currentData) return
+    
+    // Apply aspect ratio correction to view direction coordinates
+    const adjustedCoords = this.adjustCoordinatesForAspectRatio(currentData.map.x, currentData.map.y)
     
     // Create arrow or line indicating view direction
     const directionIndicator = new Rectangle('view_direction')
@@ -1263,9 +1300,11 @@ class VRPanoramaViewer {
     directionIndicator.background = 'rgba(255, 255, 0, 0.9)' // Yellow arrow
     directionIndicator.thickness = 0
     
-    // Position relative to current location
-    directionIndicator.leftInPixels = currentData.map.x - 1.5 // Center the 3px line
-    directionIndicator.topInPixels = currentData.map.y - 20 // Point outward from marker
+    // Use percentage positioning for consistent scaling
+    directionIndicator.left = `${(adjustedCoords.x * 100)}%`
+    directionIndicator.top = `${(adjustedCoords.y * 100 - 8)}%` // Offset upward from marker
+    directionIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
+    directionIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
     
     // Rotate based on current camera direction (will be updated in updateFloorplanMarkers)
     this.updateViewDirection(directionIndicator)
@@ -1273,23 +1312,37 @@ class VRPanoramaViewer {
     background.addControl(directionIndicator)
     this.floorplanViewDirectionIndicator = directionIndicator
     
-    console.log('Added view direction indicator')
+    console.log('Added view direction indicator with aspect ratio correction')
   }
 
   private updateFloorplanMarkers(): void {
-    if (!this.floorplanCurrentLocationMarker || !this.floorplanViewDirectionIndicator) return
+    // When the current location changes, we need to recreate all markers
+    // to update their styling (current vs non-current)
+    if (!this.floorplanUI) return
     
     const currentData = this.panoramaData[this.currentPanorama]
     if (!currentData) return
     
-    // Update current location marker position
-    this.floorplanCurrentLocationMarker.leftInPixels = currentData.map.x - 10
-    this.floorplanCurrentLocationMarker.topInPixels = currentData.map.y - 10
+    // Get the background rectangle that contains the markers
+    const background = this.floorplanUI.getControlByName('background') as Rectangle
+    if (!background) {
+      console.warn('Floorplan background not found')
+      return
+    }
     
-    // Update view direction indicator position and rotation
-    this.floorplanViewDirectionIndicator.leftInPixels = currentData.map.x - 1.5
-    this.floorplanViewDirectionIndicator.topInPixels = currentData.map.y - 20
-    this.updateViewDirection(this.floorplanViewDirectionIndicator)
+    // Get the current floor and recreate all markers with updated styling
+    const currentFloor = currentData.floor
+    this.addFloorplanPositionMarkers(background, currentFloor)
+    
+    // Update view direction indicator position if it exists
+    if (this.floorplanViewDirectionIndicator) {
+      const adjustedCoords = this.adjustCoordinatesForAspectRatio(currentData.map.x, currentData.map.y)
+      this.floorplanViewDirectionIndicator.left = `${(adjustedCoords.x * 100)}%`
+      this.floorplanViewDirectionIndicator.top = `${(adjustedCoords.y * 100 - 8)}%`
+      this.updateViewDirection(this.floorplanViewDirectionIndicator)
+    }
+    
+    console.log(`Updated floorplan markers for current location: ${currentData.name}`)
   }
 
   private updateViewDirection(indicator: Control): void {

@@ -61,6 +61,10 @@ class VRPanoramaViewer {
   private currentLocationLabel: string = 'Drehgestelllager'
   private floorplanUI: AdvancedDynamicTexture | null = null
   private floorplanContainer: TransformNode | null = null
+  private floorplanPositionMarkers: Control[] = []
+  private floorplanCurrentLocationMarker: Control | null = null
+  private floorplanViewDirectionIndicator: Control | null = null
+  private floorplanUpdateObserver: any = null
   private isVRActive = false
   private infoText: TextBlock | null = null
   private enterVRButton: Button | null = null
@@ -1118,6 +1122,12 @@ class VRPanoramaViewer {
     floorplanImage.stretch = Image.STRETCH_UNIFORM
     background.addControl(floorplanImage)
 
+    // Add interactive position markers
+    this.addFloorplanPositionMarkers(background, currentFloor)
+
+    // Setup continuous update for view direction
+    this.setupFloorplanUpdateObserver()
+
     // Only try to attach to controllers in real VR mode
     if (!this.isVREmulationMode && this.xrHelper?.input.controllers) {
       this.xrHelper.input.controllers.forEach(controller => {
@@ -1157,9 +1167,212 @@ class VRPanoramaViewer {
     // Update position indicator on floorplan
     // This would require more detailed implementation based on the map coordinates
     console.log('Updating floorplan position:', currentData.map)
+    
+    // Update current location marker and view direction if they exist
+    this.updateFloorplanMarkers()
+  }
+
+  private addFloorplanPositionMarkers(background: Rectangle, currentFloor: string): void {
+    console.log('Adding interactive position markers to floorplan')
+    
+    // Clear existing markers
+    this.clearFloorplanMarkers()
+    
+    // Get all panoramas on the same floor
+    const floorPanoramas = Object.entries(this.panoramaData).filter(([_, data]) => data.floor === currentFloor)
+    
+    // Add position markers for each panorama on this floor
+    floorPanoramas.forEach(([panoramaId, data]) => {
+      this.createFloorplanPositionMarker(background, panoramaId, data)
+    })
+    
+    // Add current location marker with view direction
+    this.createCurrentLocationMarker(background)
+    this.createViewDirectionIndicator(background)
+  }
+
+  private createFloorplanPositionMarker(background: Rectangle, panoramaId: string, data: PanoramaData): void {
+    // Create clickable position marker
+    const marker = new Button(`marker_${panoramaId}`)
+    marker.widthInPixels = 12
+    marker.heightInPixels = 12
+    marker.cornerRadius = 6
+    marker.thickness = 2
+    
+    // Different style for current location vs other locations
+    const isCurrent = panoramaId === this.currentPanorama
+    if (isCurrent) {
+      marker.background = 'rgba(255, 0, 0, 0.8)' // Red for current location
+      marker.color = 'white'
+    } else {
+      marker.background = 'rgba(0, 150, 255, 0.7)' // Blue for other locations
+      marker.color = 'white'
+    }
+    
+    // Position based on map coordinates (normalize to floorplan dimensions)
+    // Assuming map coordinates are in a range that needs to be normalized to 0-1
+    marker.leftInPixels = data.map.x - 6 // Center the 12px marker
+    marker.topInPixels = data.map.y - 6
+    
+    // Add click handler for navigation
+    if (!isCurrent) {
+      marker.onPointerClickObservable.add(() => {
+        console.log(`Navigating to ${data.name} via floorplan click`)
+        this.navigateToPanorama(panoramaId)
+      })
+    }
+    
+    // Add to background and store reference
+    background.addControl(marker)
+    this.floorplanPositionMarkers.push(marker)
+    
+    console.log(`Added position marker for ${data.name} at (${data.map.x}, ${data.map.y})`)
+  }
+
+  private createCurrentLocationMarker(background: Rectangle): void {
+    const currentData = this.panoramaData[this.currentPanorama]
+    if (!currentData) return
+    
+    // Create larger, more prominent current location marker
+    const currentMarker = new Rectangle(`current_location_${this.currentPanorama}`)
+    currentMarker.widthInPixels = 20
+    currentMarker.heightInPixels = 20
+    currentMarker.cornerRadius = 10
+    currentMarker.thickness = 3
+    currentMarker.background = 'rgba(255, 0, 0, 0.9)'
+    currentMarker.color = 'rgba(255, 255, 0, 1)' // Yellow border
+    
+    // Position at current location
+    currentMarker.leftInPixels = currentData.map.x - 10 // Center the 20px marker
+    currentMarker.topInPixels = currentData.map.y - 10
+    
+    background.addControl(currentMarker)
+    this.floorplanCurrentLocationMarker = currentMarker
+    
+    console.log(`Added current location marker at (${currentData.map.x}, ${currentData.map.y})`)
+  }
+
+  private createViewDirectionIndicator(background: Rectangle): void {
+    const currentData = this.panoramaData[this.currentPanorama]
+    if (!currentData) return
+    
+    // Create arrow or line indicating view direction
+    const directionIndicator = new Rectangle('view_direction')
+    directionIndicator.widthInPixels = 3
+    directionIndicator.heightInPixels = 25
+    directionIndicator.background = 'rgba(255, 255, 0, 0.9)' // Yellow arrow
+    directionIndicator.thickness = 0
+    
+    // Position relative to current location
+    directionIndicator.leftInPixels = currentData.map.x - 1.5 // Center the 3px line
+    directionIndicator.topInPixels = currentData.map.y - 20 // Point outward from marker
+    
+    // Rotate based on current camera direction (will be updated in updateFloorplanMarkers)
+    this.updateViewDirection(directionIndicator)
+    
+    background.addControl(directionIndicator)
+    this.floorplanViewDirectionIndicator = directionIndicator
+    
+    console.log('Added view direction indicator')
+  }
+
+  private updateFloorplanMarkers(): void {
+    if (!this.floorplanCurrentLocationMarker || !this.floorplanViewDirectionIndicator) return
+    
+    const currentData = this.panoramaData[this.currentPanorama]
+    if (!currentData) return
+    
+    // Update current location marker position
+    this.floorplanCurrentLocationMarker.leftInPixels = currentData.map.x - 10
+    this.floorplanCurrentLocationMarker.topInPixels = currentData.map.y - 10
+    
+    // Update view direction indicator position and rotation
+    this.floorplanViewDirectionIndicator.leftInPixels = currentData.map.x - 1.5
+    this.floorplanViewDirectionIndicator.topInPixels = currentData.map.y - 20
+    this.updateViewDirection(this.floorplanViewDirectionIndicator)
+  }
+
+  private updateViewDirection(indicator: Control): void {
+    // Get camera rotation to determine view direction
+    let camera = this.scene.activeCamera
+    if (this.xrHelper && this.xrHelper.baseExperience.camera) {
+      camera = this.xrHelper.baseExperience.camera
+    }
+    if (!camera) camera = this.camera
+    if (!camera) return
+    
+    // Convert camera Y rotation to degrees and apply to indicator
+    // For UniversalCamera, use the camera's rotation property
+    let cameraYRotation = 0
+    if (camera instanceof UniversalCamera) {
+      cameraYRotation = camera.rotation.y * (180 / Math.PI)
+    } else {
+      // For WebXR camera, get rotation from transform
+      const forward = camera.getForwardRay().direction
+      cameraYRotation = Math.atan2(forward.x, forward.z) * (180 / Math.PI)
+    }
+    
+    indicator.transformCenterX = 0.5
+    indicator.transformCenterY = 1 // Rotate around bottom of the indicator
+    indicator.rotation = cameraYRotation
+  }
+
+  private clearFloorplanMarkers(): void {
+    // Clear existing position markers
+    this.floorplanPositionMarkers.forEach(marker => {
+      if (marker.parent) {
+        marker.parent.removeControl(marker)
+      }
+      marker.dispose()
+    })
+    this.floorplanPositionMarkers = []
+    
+    // Clear current location marker
+    if (this.floorplanCurrentLocationMarker) {
+      if (this.floorplanCurrentLocationMarker.parent) {
+        this.floorplanCurrentLocationMarker.parent.removeControl(this.floorplanCurrentLocationMarker)
+      }
+      this.floorplanCurrentLocationMarker.dispose()
+      this.floorplanCurrentLocationMarker = null
+    }
+    
+    // Clear view direction indicator
+    if (this.floorplanViewDirectionIndicator) {
+      if (this.floorplanViewDirectionIndicator.parent) {
+        this.floorplanViewDirectionIndicator.parent.removeControl(this.floorplanViewDirectionIndicator)
+      }
+      this.floorplanViewDirectionIndicator.dispose()
+      this.floorplanViewDirectionIndicator = null
+    }
+  }
+
+  private setupFloorplanUpdateObserver(): void {
+    // Remove existing observer if any
+    if (this.floorplanUpdateObserver) {
+      this.scene.unregisterBeforeRender(this.floorplanUpdateObserver)
+      this.floorplanUpdateObserver = null
+    }
+    
+    // Setup continuous update for view direction indicator
+    this.floorplanUpdateObserver = this.scene.registerBeforeRender(() => {
+      if (this.floorplanViewDirectionIndicator) {
+        this.updateViewDirection(this.floorplanViewDirectionIndicator)
+      }
+    })
+    
+    console.log('Setup floorplan continuous update observer')
   }
 
   private disposeFloorplanUI(): void {
+    // Clear markers first
+    this.clearFloorplanMarkers()
+    
+    // Remove update observer
+    if (this.floorplanUpdateObserver) {
+      this.scene.unregisterBeforeRender(this.floorplanUpdateObserver)
+      this.floorplanUpdateObserver = null
+    }
+    
     if (this.floorplanUI) {
       this.floorplanUI.dispose()
       this.floorplanUI = null
@@ -1508,6 +1721,12 @@ class VRPanoramaViewer {
     const floorplanImage = new Image('floorplan', floorplanPath)
     floorplanImage.stretch = Image.STRETCH_UNIFORM
     background.addControl(floorplanImage)
+
+    // Add interactive position markers
+    this.addFloorplanPositionMarkers(background, currentFloor)
+
+    // Setup continuous update for view direction
+    this.setupFloorplanUpdateObserver()
 
     // Add current position indicator
     this.updateFloorplan()

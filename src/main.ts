@@ -1255,6 +1255,9 @@ class VRPanoramaViewer {
   private updateVRCaption(): void {
     if (!this.isVRActive) return
 
+    // Dispose existing VR caption first
+    this.disposeVRCaption()
+
     // Create VR caption container
     this.vrCaptionContainer = new TransformNode('vrCaptionContainer', this.scene)
     
@@ -1416,6 +1419,9 @@ class VRPanoramaViewer {
   // VR Caption setup for emulation mode (bypasses isVRActive check)
   private setupVRCaptionEmulation(): void {
     console.log('Setting up VR caption for emulation mode')
+
+    // Dispose existing VR caption first
+    this.disposeVRCaption()
 
     // Create VR caption container
     this.vrCaptionContainer = new TransformNode('vrCaptionContainer', this.scene)

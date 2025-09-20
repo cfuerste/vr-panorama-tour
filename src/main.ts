@@ -1405,7 +1405,7 @@ class VRPanoramaViewer {
     let adjustedX = x
     let adjustedY = y
     
-    const containerAspectRatio = 1.5 // Square container
+    const containerAspectRatio = 1 // Square container
     if (aspectRatio > containerAspectRatio) {
       // Image is wider - letterboxed (black bars top/bottom)
       const imageHeightInContainer = 1.0 / aspectRatio // Height ratio in container

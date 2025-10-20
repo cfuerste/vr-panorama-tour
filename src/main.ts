@@ -49,6 +49,13 @@ interface PanoramaDatabase {
   [key: string]: PanoramaData
 }
 
+// Cache entry interface
+interface CachedPhotoDome {
+  photoDome: PhotoDome
+  isActive: boolean
+  lastUsed: number
+}
+
 class VRPanoramaViewer {
   private engine: Engine
   private scene: Scene
@@ -78,6 +85,11 @@ class VRPanoramaViewer {
   private isVREmulationMode = false
   private preloader: PanoramaPreloader
   private initialPreloadingDone = false
+  
+  // Panorama cache system
+  private panoramaCache: Map<string, CachedPhotoDome> = new Map()
+  private maxCacheSize = 10 // Maximum number of panoramas to keep in cache
+  private cacheCleanupThreshold = 15 // Start cleanup when cache exceeds this size
 
   constructor(canvas: HTMLCanvasElement) {
     // Initialize engine with VR optimizations and improved WebGL error handling
@@ -194,6 +206,41 @@ class VRPanoramaViewer {
     }
   }
 
+  private getCacheKey(panoramaId: string, isVR: boolean, isMobile: boolean): string {
+    let suffix = '_std.jpg'
+    if (isMobile && !isVR) {
+      suffix = '_mobile.jpg'
+    } else if (isVR) {
+      suffix = '_hq.jpg'
+    }
+    return `${panoramaId}_${suffix}`
+  }
+
+  private cleanupCache(): void {
+    if (this.panoramaCache.size <= this.maxCacheSize) {
+      return
+    }
+
+    console.log(`Cache cleanup: ${this.panoramaCache.size} entries, target: ${this.maxCacheSize}`)
+
+    // Sort by last used time (oldest first)
+    const cacheEntries = Array.from(this.panoramaCache.entries())
+      .sort((a, b) => a[1].lastUsed - b[1].lastUsed)
+
+    // Remove oldest entries, but never remove the currently active one
+    const entriesToRemove = cacheEntries.slice(0, this.panoramaCache.size - this.maxCacheSize)
+    
+    for (const [key, cachedDome] of entriesToRemove) {
+      if (!cachedDome.isActive) {
+        console.log(`Removing cached panorama: ${key}`)
+        cachedDome.photoDome.dispose()
+        this.panoramaCache.delete(key)
+      }
+    }
+
+    console.log(`Cache cleanup complete: ${this.panoramaCache.size} entries remaining`)
+  }
+
   private async loadPanorama(panoramaId: string): Promise<void> {
     const panoramaInfo = this.panoramaData[panoramaId]
     if (!panoramaInfo) {
@@ -201,93 +248,134 @@ class VRPanoramaViewer {
       return
     }
 
-    // Remove existing photodome and hotspots
-    this.clearScene()
-
     // Choose appropriate image resolution based on device
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
     const isVR = this.isVRActive
     
-    let imageSuffix = '_std.jpg' // Default to standard resolution
-    if (isMobile && !isVR) {
-      imageSuffix = '_mobile.jpg' // Lower resolution for mobile
-    } else if (isVR) {
-      imageSuffix = '_hq.jpg' // Highest resolution for VR
-    }
-    
-    const basePath = import.meta.env.BASE_URL
-    const imagePath = `${basePath}panos/optimized_natural/${panoramaInfo.image.replace('.jpg', imageSuffix)}`
-    
-    // Check if image is preloaded
-    const preloadedUrl = this.preloader.getPreloadedImage(imagePath)
-    const finalImagePath = preloadedUrl || imagePath
-    
-    try {
-      this.currentPhotoDome = new PhotoDome(
-        `dome_${panoramaId}`,
-        finalImagePath,
-        {
-          resolution: isVR ? 128 : 64, // Higher resolution for VR
-          size: 1000,
-          useDirectMapping: false, // Keep original mapping for correct orientation
-          halfDomeMode: false
-        },
-        this.scene
-      )
+    const cacheKey = this.getCacheKey(panoramaId, isVR, isMobile)
 
-      // Fix for VR headsets - ensure proper material configuration
-      if (this.currentPhotoDome.material) {
-        // Don't freeze the material immediately in VR to allow proper setup
-        if (!this.isVRActive) {
-          this.currentPhotoDome.material.freeze()
-        }
-        
-        // Ensure backface culling is disabled for proper inside-out rendering
-        this.currentPhotoDome.material.backFaceCulling = false
-        
-        // Force texture refresh for VR
-        if (this.isVRActive && this.currentPhotoDome.material.diffuseTexture) {
-          this.currentPhotoDome.material.diffuseTexture.updateSamplingMode(1) // Linear sampling
-        }
+    // Mark all cached panoramas as inactive
+    this.panoramaCache.forEach(cached => {
+      cached.isActive = false
+      if (cached.photoDome.mesh) {
+        cached.photoDome.mesh.setEnabled(false)
       }
+    })
 
-      // For VR compatibility without changing orientation
-      if (this.currentPhotoDome.mesh) {
-        // Ensure proper inside-out rendering without flipping faces
-        this.currentPhotoDome.mesh.material = this.currentPhotoDome.material
-        
-        // Only adjust for VR if needed, without affecting desktop orientation
-        if (this.isVRActive) {
-          this.currentPhotoDome.mesh.flipFaces(false) // Don't flip faces to maintain orientation
+    // Clear hotspots (they need to be recreated for each panorama)
+    this.clearHotspots()
+
+    let photoDome: PhotoDome
+
+    // Check if panorama is already cached
+    if (this.panoramaCache.has(cacheKey)) {
+      console.log(`Using cached panorama: ${cacheKey}`)
+      const cached = this.panoramaCache.get(cacheKey)!
+      photoDome = cached.photoDome
+      cached.isActive = true
+      cached.lastUsed = Date.now()
+      
+      // Enable the cached photodome
+      if (photoDome.mesh) {
+        photoDome.mesh.setEnabled(true)
+      }
+    } else {
+      console.log(`Loading new panorama: ${cacheKey}`)
+      
+      // Determine image path
+      let imageSuffix = '_std.jpg' // Default to standard resolution
+      if (isMobile && !isVR) {
+        imageSuffix = '_mobile.jpg' // Lower resolution for mobile
+      } else if (isVR) {
+        imageSuffix = '_hq.jpg' // Highest resolution for VR
+      }
+      
+      const basePath = import.meta.env.BASE_URL
+      const imagePath = `${basePath}panos/optimized_natural/${panoramaInfo.image.replace('.jpg', imageSuffix)}`
+      
+      // Check if image is preloaded
+      const preloadedUrl = this.preloader.getPreloadedImage(imagePath)
+      const finalImagePath = preloadedUrl || imagePath
+      
+      try {
+        photoDome = new PhotoDome(
+          `dome_${cacheKey}`,
+          finalImagePath,
+          {
+            resolution: isVR ? 128 : 64, // Higher resolution for VR
+            size: 1000,
+            useDirectMapping: false, // Keep original mapping for correct orientation
+            halfDomeMode: false
+          },
+          this.scene
+        )
+
+        // Fix for VR headsets - ensure proper material configuration
+        if (photoDome.material) {
+          // Don't freeze the material immediately in VR to allow proper setup
+          if (!this.isVRActive) {
+            photoDome.material.freeze()
+          }
           
-          // If you need to adjust the starting rotation to match the original view,
-          // you can apply a rotation here:
-          // this.currentPhotoDome.mesh.rotation.y = 0 // Adjust as needed
+          // Ensure backface culling is disabled for proper inside-out rendering
+          photoDome.material.backFaceCulling = false
+          
+          // Force texture refresh for VR
+          if (this.isVRActive && photoDome.material.diffuseTexture) {
+            photoDome.material.diffuseTexture.updateSamplingMode(1) // Linear sampling
+          }
         }
+
+        // For VR compatibility without changing orientation
+        if (photoDome.mesh) {
+          // Ensure proper inside-out rendering without flipping faces
+          photoDome.mesh.material = photoDome.material
+          
+          // Only adjust for VR if needed, without affecting desktop orientation
+          if (this.isVRActive) {
+            photoDome.mesh.flipFaces(false) // Don't flip faces to maintain orientation
+          }
+        }
+
+        // Add to cache
+        this.panoramaCache.set(cacheKey, {
+          photoDome,
+          isActive: true,
+          lastUsed: Date.now()
+        })
+
+        // Cleanup cache if it gets too large
+        if (this.panoramaCache.size > this.cacheCleanupThreshold) {
+          this.cleanupCache()
+        }
+
+      } catch (error) {
+        console.error('Failed to load panorama:', panoramaId, error)
+        return
       }
-
-      this.currentPanorama = panoramaId
-
-      // Create hotspots for navigation
-      this.createHotspots(panoramaInfo.links)
-
-      // Update floorplan
-      this.updateFloorplan()
-
-      // Update VR caption if in VR mode
-      this.updateVRCaption()
-
-      // Update info text
-      this.updateInfoText()
-
-      // Only preload connected panoramas after initial preloading is complete
-      if (this.initialPreloadingDone) {
-        this.preloadConnectedPanoramas(panoramaId)
-      }
-
-    } catch (error) {
-      console.error('Failed to load panorama:', panoramaId, error)
     }
+
+    this.currentPhotoDome = photoDome
+    this.currentPanorama = panoramaId
+
+    // Create hotspots for navigation
+    this.createHotspots(panoramaInfo.links)
+
+    // Update floorplan
+    this.updateFloorplan()
+
+    // Update VR caption if in VR mode
+    this.updateVRCaption()
+
+    // Update info text
+    this.updateInfoText()
+
+    // Only preload connected panoramas after initial preloading is complete
+    if (this.initialPreloadingDone) {
+      this.preloadConnectedPanoramas(panoramaId)
+    }
+
+    console.log(`Cache status: ${this.panoramaCache.size} panoramas cached`)
   }
 
   private startBackgroundPreloading(): void {
@@ -358,18 +446,13 @@ class VRPanoramaViewer {
 
   private updateInfoText(): void {
     if (this.infoText) {
-      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}`
+      const cacheInfo = `\nCached: ${this.panoramaCache.size} panoramas`
+      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}${cacheInfo}`
     }
   }
 
-  private clearScene(): void {
-    // Dispose existing photodome
-    if (this.currentPhotoDome) {
-      this.currentPhotoDome.dispose()
-      this.currentPhotoDome = null
-    }
-
-    // Clear hotspots
+  private clearHotspots(): void {
+    // Clear hotspots only (don't dispose the photodome)
     this.hotspots.forEach(hotspot => hotspot.dispose())
     this.hotspots = []
   }
@@ -1064,8 +1147,12 @@ class VRPanoramaViewer {
       this.floorplanContainer.position = new Vector3(0, 0, 0)
     }
     
+    const floorplanScale = 2
+    const floorplanWidth = 0.3 * floorplanScale
+    const floorplanHeight = 0.2 * floorplanScale
+    
     // Create floorplan plane
-    const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { width: 0.3, height: 0.2 }, this.scene)
+    const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { width: floorplanWidth, height: floorplanHeight }, this.scene)
     floorplanPlane.parent = this.floorplanContainer
     
     // Fix flipped orientation by rotating the plane
@@ -1073,9 +1160,9 @@ class VRPanoramaViewer {
     
     if (!this.isVREmulationMode) {
       // Only offset when attached to controller
-      floorplanPlane.position = new Vector3(-0.2, 0, 0.1)
+      floorplanPlane.position = new Vector3(0.275, 0, 0)
       // Combine the flip correction with the controller rotation
-      floorplanPlane.rotation = new Vector3(0, Math.PI + Math.PI / 6, 0)
+      //floorplanPlane.rotation = new Vector3(0, Math.PI + Math.PI / 6, 0)
     }
 
     // Load appropriate floorplan image
@@ -1274,7 +1361,7 @@ class VRPanoramaViewer {
     const allPanoramas = Object.entries(this.panoramaData)
     
     console.log(`Found ${allPanoramas.length} total panoramas across all floors`)
-    
+
     // Add position markers for each panorama with blending
     allPanoramas.forEach(([panoramaId, data]) => {
       this.createFloorplanPositionMarkerWithBlending(background, panoramaId, data, selectedFloor)
@@ -1296,9 +1383,9 @@ class VRPanoramaViewer {
     
     if (isCurrent) {
       // Current location marker - always prominent
-      marker.widthInPixels = 20
-      marker.heightInPixels = 20
-      marker.cornerRadius = 10
+      marker.widthInPixels = 30
+      marker.heightInPixels = marker.widthInPixels
+      marker.cornerRadius = marker.widthInPixels / 2
       marker.thickness = 3
       marker.background = 'rgba(255, 0, 0, 0.9)' // Bright red for current location
       marker.color = 'rgba(255, 255, 0, 1)' // Yellow border
@@ -1306,20 +1393,20 @@ class VRPanoramaViewer {
       this.floorplanCurrentLocationMarker = marker
     } else if (isSelectedFloor) {
       // Markers on selected floor - normal visibility
-      marker.widthInPixels = 14
-      marker.heightInPixels = 14
-      marker.cornerRadius = 7
+      marker.widthInPixels = 34
+      marker.heightInPixels = marker.widthInPixels
+      marker.cornerRadius = marker.widthInPixels / 2
       marker.thickness = 2
       marker.background = 'rgba(0, 150, 255, 0.8)' // Blue for same floor
       marker.color = 'rgba(255, 255, 255, 0.9)' // White border
     } else {
       // Markers on other floors - dimmed/blended
-      marker.widthInPixels = 10
-      marker.heightInPixels = 10
-      marker.cornerRadius = 5
+      marker.widthInPixels = 20
+      marker.heightInPixels = marker.widthInPixels
+      marker.cornerRadius = marker.widthInPixels / 2
       marker.thickness = 1
-      marker.background = 'rgba(150, 150, 150, 0.4)' // Dimmed gray for other floors
-      marker.color = 'rgba(200, 200, 200, 0.5)' // Light gray border
+      marker.background = 'rgba(0, 150, 255, 0.5)' // Blue for same floor
+      marker.color = 'rgba(255, 255, 255, 0.6)' // White border
     }
     
     // Add hover effects for better interaction (only for clickable markers)
@@ -1357,10 +1444,6 @@ class VRPanoramaViewer {
     background.addControl(marker)
     this.floorplanPositionMarkers.push(marker)
     
-    console.log(`Added position marker for ${data.name} (${data.floor}):`)
-    console.log(`  - Is current location: ${isCurrent}`)
-    console.log(`  - Is on selected floor: ${isSelectedFloor}`)
-    console.log(`  - Floor: ${data.floor} (selected: ${selectedFloor})`)
   }  private adjustCoordinatesForAspectRatio(x: number, y: number): { x: number; y: number } {
     // Floorplan images are 1000x751 pixels (aspect ratio ~1.33:1)
     const floorplanImageWidth = 1000
@@ -1390,28 +1473,97 @@ class VRPanoramaViewer {
     // Apply aspect ratio correction to view direction coordinates
     const adjustedCoords = this.adjustCoordinatesForAspectRatio(currentData.map.x, currentData.map.y)
     
-    // Create arrow or line indicating view direction
-    const directionIndicator = new Rectangle('view_direction')
-    directionIndicator.widthInPixels = 3
-    directionIndicator.heightInPixels = 25
-    directionIndicator.background = 'rgba(255, 255, 0, 0.9)' // Yellow arrow
-    directionIndicator.thickness = 0
+    // Create view angle representation with two lines forming a cone/wedge
+    const viewAngle = 60 // Degrees - typical VR/camera field of view
+    const indicatorLength = 25 // Length of the view angle lines
     
-    // Use percentage positioning for consistent scaling
-    directionIndicator.left = `${(adjustedCoords.x * 100)}%`
-    directionIndicator.top = `${(adjustedCoords.y * 100 - 8)}%` // Offset upward from marker
-    directionIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
-    directionIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    // Left side of view angle
+    const directionIndicatorL = new Rectangle('view_direction_L')
+    directionIndicatorL.widthInPixels = 2
+    directionIndicatorL.heightInPixels = indicatorLength
+    directionIndicatorL.background = 'rgba(255, 255, 0, 0.8)' // Yellow for visibility
+    directionIndicatorL.thickness = 0
     
-    // Rotate based on current camera direction (will be updated in updateFloorplanMarkers)
-    this.updateViewDirection(directionIndicator)
+    // Right side of view angle
+    const directionIndicatorR = new Rectangle('view_direction_R')
+    directionIndicatorR.widthInPixels = 2
+    directionIndicatorR.heightInPixels = indicatorLength
+    directionIndicatorR.background = 'rgba(255, 255, 0, 0.8)' // Yellow for visibility
+    directionIndicatorR.thickness = 0
     
-    background.addControl(directionIndicator)
-    this.floorplanViewDirectionIndicator = directionIndicator
+    // Center both indicators on the position marker
+    directionIndicatorL.left = `${(adjustedCoords.x * 100)}%`
+    directionIndicatorL.top = `${(adjustedCoords.y * 100)}%`
+    directionIndicatorL.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
+    directionIndicatorL.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
     
-    console.log('Added view direction indicator with aspect ratio correction')
+    directionIndicatorR.left = `${(adjustedCoords.x * 100)}%`
+    directionIndicatorR.top = `${(adjustedCoords.y * 100)}%`
+    directionIndicatorR.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
+    directionIndicatorR.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    
+    // Set transform center to rotate around the base (where it connects to the position marker)
+    directionIndicatorL.transformCenterX = 0.5  // Center horizontally
+    directionIndicatorL.transformCenterY = 1.0  // Bottom of indicator (base)
+    directionIndicatorR.transformCenterX = 0.5  // Center horizontally
+    directionIndicatorR.transformCenterY = 1.0  // Bottom of indicator (base)
+    
+    // Store the view angle for rotation calculations
+    directionIndicatorL.metadata = { side: 'left', viewAngle: viewAngle }
+    directionIndicatorR.metadata = { side: 'right', viewAngle: viewAngle }
+    
+    // Initial rotation based on current camera direction
+    this.updateViewAngle(directionIndicatorL, directionIndicatorR)
+    
+    background.addControl(directionIndicatorL)
+    background.addControl(directionIndicatorR)
+    
+    // Store both indicators (we'll use L as the primary reference)
+    this.floorplanViewDirectionIndicator = directionIndicatorL
+    // Store R indicator in metadata for easy access
+    directionIndicatorL.metadata.rightIndicator = directionIndicatorR
+    
+    console.log(`Added view angle indicator with ${viewAngle}° field of view`)
   }
 
+  private updateViewAngle(indicatorL: Control, indicatorR: Control): void {
+    // Get camera rotation to determine view direction
+    let camera = this.scene.activeCamera
+    if (this.xrHelper && this.xrHelper.baseExperience.camera) {
+      camera = this.xrHelper.baseExperience.camera
+    }
+    if (!camera) camera = this.camera
+    if (!camera) return
+    
+    // Convert camera Y rotation to radians
+    let cameraYRotation = 0
+    if (camera instanceof UniversalCamera) {
+      cameraYRotation = camera.rotation.y
+    } else {
+      // For WebXR camera, get rotation from transform
+      const forward = camera.getForwardRay().direction
+      cameraYRotation = Math.atan2(forward.x, forward.z) - Math.PI / 2
+    }
+    
+    // Get view angle from metadata
+    const viewAngleInDegrees = indicatorL.metadata?.viewAngle || 60
+    const halfViewAngleInRadians = Tools.ToRadians(viewAngleInDegrees / 2)
+    
+    // Calculate rotations for left and right sides of the view angle
+    const leftRotation = cameraYRotation - halfViewAngleInRadians
+    const rightRotation = cameraYRotation + halfViewAngleInRadians
+    
+    // Apply rotations
+    indicatorL.transformCenterX = 0.5
+    indicatorL.transformCenterY = 1.0 // Rotate around bottom
+    indicatorL.rotation = leftRotation
+    
+    indicatorR.transformCenterX = 0.5
+    indicatorR.transformCenterY = 1.0 // Rotate around bottom
+    indicatorR.rotation = rightRotation
+  }
+
+  // Update the updateFloorplanMarkers method to handle the new view angle system
   private updateFloorplanMarkers(): void {
     // When the current location changes, we need to recreate all markers
     // to update their styling (current vs non-current)
@@ -1432,40 +1584,47 @@ class VRPanoramaViewer {
     
     // Update view direction indicator position if it exists
     if (this.floorplanViewDirectionIndicator) {
+      // Get the right indicator from metadata
+      const rightIndicator = this.floorplanViewDirectionIndicator.metadata?.rightIndicator
+      
+      // Update position for both indicators
       const adjustedCoords = this.adjustCoordinatesForAspectRatio(currentData.map.x, currentData.map.y)
+      
       this.floorplanViewDirectionIndicator.left = `${(adjustedCoords.x * 100)}%`
-      this.floorplanViewDirectionIndicator.top = `${(adjustedCoords.y * 100 - 8)}%`
-      this.updateViewDirection(this.floorplanViewDirectionIndicator)
+      this.floorplanViewDirectionIndicator.top = `${(adjustedCoords.y * 100)}%`
+      
+      if (rightIndicator) {
+        rightIndicator.left = `${(adjustedCoords.x * 100)}%`
+        rightIndicator.top = `${(adjustedCoords.y * 100)}%`
+      }
+      
+      // Update the view angle
+      this.updateViewAngle(this.floorplanViewDirectionIndicator, rightIndicator)
     }
     
     console.log(`Updated floorplan markers for current location: ${currentData.name} on selected floor: ${this.selectedFloor}`)
   }
 
-  private updateViewDirection(indicator: Control): void {
-    // Get camera rotation to determine view direction
-    let camera = this.scene.activeCamera
-    if (this.xrHelper && this.xrHelper.baseExperience.camera) {
-      camera = this.xrHelper.baseExperience.camera
-    }
-    if (!camera) camera = this.camera
-    if (!camera) return
-    
-    // Convert camera Y rotation to degrees and apply to indicator
-    // For UniversalCamera, use the camera's rotation property
-    let cameraYRotation = 0
-    if (camera instanceof UniversalCamera) {
-      cameraYRotation = camera.rotation.y * (180 / Math.PI)
-    } else {
-      // For WebXR camera, get rotation from transform
-      const forward = camera.getForwardRay().direction
-      cameraYRotation = Math.atan2(forward.x, forward.z) * (180 / Math.PI)
+  // Update the setupFloorplanUpdateObserver method to use the new view angle system
+  private setupFloorplanUpdateObserver(): void {
+    // Remove existing observer if any
+    if (this.floorplanUpdateObserver) {
+      this.scene.unregisterBeforeRender(this.floorplanUpdateObserver)
+      this.floorplanUpdateObserver = null
     }
     
-    indicator.transformCenterX = 0.5
-    indicator.transformCenterY = 1 // Rotate around bottom of the indicator
-    indicator.rotation = cameraYRotation
+    // Setup continuous update for view direction indicator
+    this.floorplanUpdateObserver = this.scene.registerBeforeRender(() => {
+      if (this.floorplanViewDirectionIndicator) {
+        const rightIndicator = this.floorplanViewDirectionIndicator.metadata?.rightIndicator
+        this.updateViewAngle(this.floorplanViewDirectionIndicator, rightIndicator)
+      }
+    })
+    
+    console.log('Setup floorplan continuous update observer for view angle')
   }
 
+  // Update the clearFloorplanMarkers method to handle both indicators
   private clearFloorplanMarkers(): void {
     // Clear existing position markers
     this.floorplanPositionMarkers.forEach(marker => {
@@ -1494,8 +1653,18 @@ class VRPanoramaViewer {
       this.floorplanCurrentLocationMarker = null
     }
     
-    // Clear view direction indicator
+    // Clear view direction indicators (both left and right)
     if (this.floorplanViewDirectionIndicator) {
+      // Clear right indicator first
+      const rightIndicator = this.floorplanViewDirectionIndicator.metadata?.rightIndicator
+      if (rightIndicator) {
+        if (rightIndicator.parent) {
+          rightIndicator.parent.removeControl(rightIndicator)
+        }
+        rightIndicator.dispose()
+      }
+      
+      // Clear left indicator
       if (this.floorplanViewDirectionIndicator.parent) {
         this.floorplanViewDirectionIndicator.parent.removeControl(this.floorplanViewDirectionIndicator)
       }
@@ -1504,43 +1673,6 @@ class VRPanoramaViewer {
     }
   }
 
-  private setupFloorplanUpdateObserver(): void {
-    // Remove existing observer if any
-    if (this.floorplanUpdateObserver) {
-      this.scene.unregisterBeforeRender(this.floorplanUpdateObserver)
-      this.floorplanUpdateObserver = null
-    }
-    
-    // Setup continuous update for view direction indicator
-    this.floorplanUpdateObserver = this.scene.registerBeforeRender(() => {
-      if (this.floorplanViewDirectionIndicator) {
-        this.updateViewDirection(this.floorplanViewDirectionIndicator)
-      }
-    })
-    
-    console.log('Setup floorplan continuous update observer')
-  }
-
-  private disposeFloorplanUI(): void {
-    // Clear markers first
-    this.clearFloorplanMarkers()
-    
-    // Remove update observer
-    if (this.floorplanUpdateObserver) {
-      this.scene.unregisterBeforeRender(this.floorplanUpdateObserver)
-      this.floorplanUpdateObserver = null
-    }
-    
-    if (this.floorplanUI) {
-      this.floorplanUI.dispose()
-      this.floorplanUI = null
-    }
-    if (this.floorplanContainer) {
-      this.floorplanContainer.dispose()
-      this.floorplanContainer = null
-    }
-  }
-  
   private setupVRCaption(): void {
     if (!this.isVRActive) return
 

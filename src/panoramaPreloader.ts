@@ -133,7 +133,7 @@ export class PanoramaPreloader {
             objectUrl
           })
 
-          console.log(`Preloaded: ${data.imageUrl}`)
+          console.log(`[Worker] Preloaded: ${data.imageUrl}`)
         }
 
         if (this.onProgressCallback && data.progress !== undefined && data.total !== undefined) {

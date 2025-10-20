@@ -77,6 +77,7 @@ class VRPanoramaViewer {
   private vrCaptionRenderObserver: any = null
   private isVREmulationMode = false
   private preloader: PanoramaPreloader
+  private initialPreloadingDone = false
 
   constructor(canvas: HTMLCanvasElement) {
     // Initialize engine with VR optimizations and improved WebGL error handling
@@ -145,9 +146,6 @@ class VRPanoramaViewer {
 
     // Initialize preloader
     this.preloader = new PanoramaPreloader()
-
-    // Setup keyboard controls for VR emulation
-    this.setupVREmulationControls()
 
     this.init()
   }
@@ -279,14 +277,13 @@ class VRPanoramaViewer {
       // Update VR caption if in VR mode
       this.updateVRCaption()
 
-      // Update VR caption in emulation mode if active
-      this.updateVRCaptionEmulation()
-
       // Update info text
       this.updateInfoText()
 
-      // Preload connected panoramas after loading current one
-      this.preloadConnectedPanoramas(panoramaId)
+      // Only preload connected panoramas after initial preloading is complete
+      if (this.initialPreloadingDone) {
+        this.preloadConnectedPanoramas(panoramaId)
+      }
 
     } catch (error) {
       console.error('Failed to load panorama:', panoramaId, error)
@@ -300,6 +297,7 @@ class VRPanoramaViewer {
 
     // Get all panorama images that are connected to current panorama
     this.preloadConnectedPanoramas(this.currentPanorama)
+    this.initialPreloadingDone = true
   }
 
   private preloadConnectedPanoramas(panoramaId: string): void {
@@ -440,14 +438,7 @@ class VRPanoramaViewer {
           }
         }
       ))
-      
-      hotspot.actionManager.registerAction(new ExecuteCodeAction(
-        ActionManager.OnPointerOutTrigger,
-        () => {
-          material.emissiveColor = new Color3(0.5, 0.1, 0.1)
-        }
-      ))
-      
+            
       // On click/select - navigate and store the label
       hotspot.actionManager.registerAction(new ExecuteCodeAction(
         ActionManager.OnPickTrigger,
@@ -485,10 +476,11 @@ class VRPanoramaViewer {
 
   private createHotspotLabel(hotspot: Mesh, text: string, index: number): void {
     // Create plane for label
-    const labelPlane = MeshBuilder.CreatePlane(`label_${index}`, { size: 80 }, this.scene)
+    const labelPlane = MeshBuilder.CreatePlane(`label_${index}`, { size: 50 }, this.scene)
     labelPlane.position = hotspot.position.clone()
     labelPlane.position.y += 10
     labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL
+    labelPlane.isPickable = false
 
     // Create label texture
     const labelTexture = AdvancedDynamicTexture.CreateForMesh(labelPlane)
@@ -496,25 +488,13 @@ class VRPanoramaViewer {
     const textBlock = new TextBlock()
     textBlock.text = text
     textBlock.color = 'white'
-    textBlock.fontSize = 55
+    textBlock.fontSize = 85
     textBlock.fontWeight = 'bold'
     textBlock.fontFamily = 'Arial'
-    textBlock.textWrapping = true
-    textBlock.resizeToFit = true
+    textBlock.textWrapping = false
+    textBlock.resizeToFit = false
     
-    const background = new Rectangle()
-    background.adaptWidthToChildren = true
-    background.adaptHeightToChildren = true
-    background.cornerRadius = 10
-    background.color = 'rgba(0, 0, 0, 0.8)'
-    background.thickness = 0  // Remove visible frame
-    background.paddingTopInPixels = 10
-    background.paddingBottomInPixels = 10
-    background.paddingLeftInPixels = 15
-    background.paddingRightInPixels = 15
-    background.addControl(textBlock)
-    
-    labelTexture.addControl(background)
+    labelTexture.addControl(textBlock)
     
     this.hotspots.push(labelPlane)
   }
@@ -667,20 +647,7 @@ class VRPanoramaViewer {
           frameCount++
           const session = sessionManager.session
           const inXRSession = this.xrHelper?.baseExperience?.sessionManager?.inXRSession || false
-          
-          // Enhanced debugging every 120 frames (every 2 seconds at 60fps)
-          if (frameCount % 120 === 0) {
-            console.log('🔍 Frame check debug (every 2s):', {
-              frameCount,
-              hasSession: !!session,
-              inXRSession,
-              isVRActive: this.isVRActive,
-              desktopUIVisible: this.desktopUI?.rootContainer?.isVisible,
-              sessionVisibilityState: session?.visibilityState,
-              timestamp: new Date().toLocaleTimeString()
-            })
-          }
-          
+                    
           if (session && inXRSession) {
             // We should be in VR mode
             if (!this.isVRActive) {
@@ -1717,265 +1684,14 @@ class VRPanoramaViewer {
       this.updateVRCaptionPosition()
     })
   }
-
-  private setupVREmulationControls(): void {
-    // Add keyboard event listener for VR emulation
-    window.addEventListener('keydown', (event) => {
-      if (event.key === 'v' || event.key === 'V') {
-        this.toggleVREmulation()
-      }
-    })
-
-    console.log('VR Emulation Controls:')
-    console.log('Press "V" key to toggle VR emulation mode')
-  }
-
-  private toggleVREmulation(): void {
-    this.isVREmulationMode = !this.isVREmulationMode
-    
-    if (this.isVREmulationMode) {
-      console.log('🥽 VR Emulation Mode: ON')
-      this.enterVREmulation()
-    } else {
-      console.log('🖥️ VR Emulation Mode: OFF')
-      this.exitVREmulation()
-    }
-  }
-
-  private enterVREmulation(): void {
-    console.log('🥽 Entering VR emulation mode (UI only - no WebXR)')
-    
-    // IMPORTANT: Only simulate VR UI, don't trigger actual WebXR
-    this.isVREmulationMode = true
-    // Note: isVRActive stays false to prevent WebXR feature setup
-    
-    // Hide desktop UI for emulation
-    if (this.desktopUI && this.desktopUI.rootContainer) {
-      console.log('🔄 Hiding desktop UI for emulation...')
-      this.desktopUI.rootContainer.isVisible = false
-      this.desktopUI.rootContainer.alpha = 0
-    }
-    
-    // Setup VR-specific UI for emulation (bypass isVRActive check)
-    this.setupVRCaptionEmulation()
-    this.setupFloorplanUIEmulation()
-    
-    // Show emulation info
-    this.showEmulationInfo()
-    
-    // VR-style material setup for visual testing
-    if (this.currentPhotoDome) {
-      if (this.currentPhotoDome.material && this.currentPhotoDome.material.isFrozen) {
-        this.currentPhotoDome.material.unfreeze()
-      }
-      
-      // VR-specific material setup
-      if (this.currentPhotoDome.material) {
-        this.currentPhotoDome.material.backFaceCulling = false
-        this.currentPhotoDome.material.maxSimultaneousLights = 2
-      }
-      
-      if (this.currentPhotoDome.mesh) {
-        this.currentPhotoDome.mesh.flipFaces(false)
-        this.currentPhotoDome.mesh.material = this.currentPhotoDome.material
-      }
-    }
-    
-    this.scene.render()
-    console.log('🥽 VR emulation UI active (no WebXR session)')
-  }
-
-  private exitVREmulation(): void {
-    console.log('🖥️  Exiting VR emulation mode (restoring desktop UI)')
-    
-    // Reset emulation state
-    this.isVREmulationMode = false
-    // Note: isVRActive should already be false
-    
-    // Restore desktop UI
-    if (this.desktopUI && this.desktopUI.rootContainer) {
-      console.log('🔄 Restoring desktop UI...')
-      this.desktopUI.rootContainer.isVisible = true
-      this.desktopUI.rootContainer.alpha = 1
-    }
-    
-    // Clean up VR-specific UI
-    this.disposeVRCaption()
-    this.disposeFloorplanUI()
-    this.disposeEmulationInfo()
-    
-    // Re-optimize materials for desktop
-    if (this.currentPhotoDome?.material && !this.currentPhotoDome.material.isFrozen) {
-      this.currentPhotoDome.material.freeze()
-    }
-    
-    console.log('🖥️  VR emulation exited - desktop UI restored')
-  }
-
-  // VR Caption setup for emulation mode (bypasses isVRActive check)
-  private setupVRCaptionEmulation(): void {
-    console.log('Setting up VR caption for emulation mode')
-
-    // Dispose existing VR caption first
-    this.disposeVRCaption()
-
-    // Create VR caption container
-    this.vrCaptionContainer = new TransformNode('vrCaptionContainer', this.scene)
-    
-    // Position the caption in front of the user (will be updated each frame)
-    this.vrCaptionContainer.position = new Vector3(0, 0.5, -2)
-    
-    // Create caption plane - optimized for emulation
-    const captionPlane = MeshBuilder.CreatePlane('vrCaption', { width: 1.0, height: 0.4 }, this.scene)
-    captionPlane.parent = this.vrCaptionContainer
-    captionPlane.billboardMode = Mesh.BILLBOARDMODE_ALL // Always face the user
-    
-    // Make plane non-pickable for click-through functionality
-    captionPlane.isPickable = false
-    captionPlane.isBlocker = false
-    
-    // Create caption UI with high resolution
-    this.vrCaptionUI = AdvancedDynamicTexture.CreateForMesh(captionPlane, 1024, 512)
-    
-    // Make the entire UI non-interactive for click-through
-    this.vrCaptionUI.isForeground = false
-    this.vrCaptionUI.rootContainer.isPointerBlocker = false
-    this.vrCaptionUI.rootContainer.isHitTestVisible = false
-    
-    // Create text directly without background
-    const captionText = new TextBlock('vrCaptionText')
-    captionText.text = `Aktueller Standort:\n\n${this.getCurrentLocationLabel()}\n(EMULATION MODE)`
-    captionText.color = 'white'
-    captionText.fontSize = 32
-    captionText.fontFamily = 'Arial'
-    captionText.fontWeight = 'bold'
-    captionText.textWrapping = true
-    captionText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
-    captionText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
-    
-    // Make text non-interactive for click-through
-    captionText.isPointerBlocker = false
-    captionText.isHitTestVisible = false
-    
-    // Add text directly to UI (no background container)
-    this.vrCaptionUI.addControl(captionText)
-    
-    // Register update function to keep caption in front of camera
-    this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
-      this.updateVRCaptionPosition()
-    })
-  }
-
-  // Update VR caption text in emulation mode when location changes
-  private updateVRCaptionEmulation(): void {
-    if (!this.isVREmulationMode) return
-
-    // If VR caption UI exists in emulation mode, update the text
-    if (this.vrCaptionUI) {
-      const captionText = this.vrCaptionUI.getControlByName('vrCaptionText') as TextBlock
-      if (captionText) {
-        captionText.text = `Aktueller Standort:\n\n${this.getCurrentLocationLabel()}\n(EMULATION MODE)`
-        console.log('Updated VR caption in emulation mode:', this.getCurrentLocationLabel())
-      }
-    }
-  }
-
-  // Floorplan setup for emulation mode (bypasses isVRActive check)
-  private setupFloorplanUIEmulation(): void {
-    console.log('Setting up floorplan UI for emulation mode')
-
-    // Create floorplan container
-    this.floorplanContainer = new TransformNode('floorplanContainer', this.scene)
-    
-    // Position floorplan to the left side where it's visible in emulation
-    this.floorplanContainer.position = new Vector3(-1.5, 0, -1)
-    this.floorplanContainer.rotation = new Vector3(0, Math.PI / 4, 0)
-    
-    // Create floorplan plane
-    const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { size: 0.3 }, this.scene)
-    floorplanPlane.parent = this.floorplanContainer
-
-    // Load appropriate floorplan image
-    const currentFloor = this.panoramaData[this.currentPanorama]?.floor || 'EG'
-    const basePath = import.meta.env.BASE_URL
-    const floorplanPath = `${basePath}ui/floorplan_${currentFloor}.png`
-    
-    console.log('Loading floorplan for emulation:', floorplanPath)
-    
-    this.floorplanUI = AdvancedDynamicTexture.CreateForMesh(floorplanPlane)
-    
-    const background = new Rectangle()
-    background.background = 'rgba(255, 255, 255, 0.9)'
-    background.cornerRadius = 10
-    this.floorplanUI.addControl(background)
-    
-    const floorplanImage = new Image('floorplan', floorplanPath)
-    floorplanImage.stretch = Image.STRETCH_UNIFORM
-    background.addControl(floorplanImage)
-
-    // Add interactive position markers
-    this.addFloorplanPositionMarkers(background, currentFloor)
-
-    // Setup continuous update for view direction
-    this.setupFloorplanUpdateObserver()
-
-    // Add current position indicator
-    this.updateFloorplan()
-  }
-
-  private showEmulationInfo(): void {
-    // Create emulation info overlay
-    const emulationInfo = new TextBlock()
-    emulationInfo.text = '🥽 VR EMULATION MODE\nPress "V" to exit\n\nFloorplan visible in scene\nVR Caption displayed'
-    emulationInfo.color = 'yellow'
-    emulationInfo.fontSize = 24
-    emulationInfo.fontFamily = 'Arial'
-    emulationInfo.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT
-    emulationInfo.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-    emulationInfo.top = '20px'
-    emulationInfo.left = '-20px'
-    emulationInfo.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT
-    emulationInfo.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-    
-    // Create a separate UI for emulation info that stays visible
-    const emulationUI = AdvancedDynamicTexture.CreateFullscreenUI('EmulationUI')
-    emulationUI.addControl(emulationInfo)
-    
-    // Store reference for cleanup
-    ;(emulationInfo as any)._emulationUI = emulationUI
-    ;(this as any)._emulationInfo = emulationInfo
-  }
-
-  private disposeEmulationInfo(): void {
-    const emulationInfo = (this as any)._emulationInfo
-    if (emulationInfo) {
-      const emulationUI = (emulationInfo as any)._emulationUI
-      if (emulationUI) {
-        emulationUI.dispose()
-      }
-      ;(this as any)._emulationInfo = null
-    }
-  }
-
-  public dispose(): void {
-    this.clearScene()
-    this.disposeFloorplanUI()
-    this.disposeVRCaption()
-    this.disposeEmulationInfo()
-    this.preloader.dispose()
-    this.scene.dispose()
-    this.engine.dispose()
-  }
 }
 
-// Initialize the VR panorama viewer
-const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement
-const viewer = new VRPanoramaViewer(canvas)
-
-// Handle page unload
-window.addEventListener('beforeunload', () => {
-  viewer.dispose()
+// Initialize the VR panorama viewer if DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement
+  new VRPanoramaViewer(canvas)
 })
+
 
 
 

@@ -123,6 +123,12 @@ export class PanoramaPreloader {
     switch (data.type) {
       case 'PRELOAD_PROGRESS':
         if (data.imageUrl && data.imageData) {
+          // Clean up existing object URL to prevent memory leaks on Quest 3
+          const existing = this.preloadedImages.get(data.imageUrl)
+          if (existing?.objectUrl) {
+            URL.revokeObjectURL(existing.objectUrl)
+          }
+
           // Create object URL for immediate use
           const blob = new Blob([data.imageData])
           const objectUrl = URL.createObjectURL(blob)
@@ -143,6 +149,8 @@ export class PanoramaPreloader {
 
       case 'PRELOAD_COMPLETE':
         console.log('All panoramas preloaded!')
+        // Clean up old object URLs that are no longer needed (keep only recent ones)
+        this.cleanupOldObjectUrls()
         if (this.onCompleteCallback) {
           this.onCompleteCallback()
         }
@@ -151,6 +159,21 @@ export class PanoramaPreloader {
       case 'PRELOAD_ERROR':
         console.error(`Preload error for ${data.imageUrl}:`, data.error)
         break
+    }
+  }
+
+  private cleanupOldObjectUrls(): void {
+    // Keep only the 20 most recently created object URLs to prevent memory buildup
+    const entries = Array.from(this.preloadedImages.entries())
+    if (entries.length > 20) {
+      const toRemove = entries.slice(0, entries.length - 20)
+      for (const [url, preloaded] of toRemove) {
+        if (preloaded.objectUrl) {
+          URL.revokeObjectURL(preloaded.objectUrl)
+        }
+        this.preloadedImages.delete(url)
+      }
+      console.log(`Cleaned up ${toRemove.length} old preloaded images for Quest 3 memory management`)
     }
   }
 

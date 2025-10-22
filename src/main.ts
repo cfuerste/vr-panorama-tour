@@ -15,6 +15,9 @@ import { AdvancedDynamicTexture, Control, TextBlock, Button, Rectangle, Image } 
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { PanoramaPreloader } from './panoramaPreloader'
+import { TextureStreamer } from './textureStreamer'
+import { getAdaptiveConfig } from './quest3Config'
+import { CacheManager } from './cacheManager'
 
 // Import GLB loader plugin
 import '@babylonjs/loaders/glTF'
@@ -49,12 +52,7 @@ interface PanoramaDatabase {
   [key: string]: PanoramaData
 }
 
-// Cache entry interface
-interface CachedPhotoDome {
-  photoDome: PhotoDome
-  isActive: boolean
-  lastUsed: number
-}
+// Cache interfaces imported via CacheManager
 
 class VRPanoramaViewer {
   private engine: Engine
@@ -84,32 +82,34 @@ class VRPanoramaViewer {
   private vrCaptionRenderObserver: any = null
   private isVREmulationMode = false
   private preloader: PanoramaPreloader
+  private textureStreamer: TextureStreamer
+  private cacheManager: CacheManager
   private initialPreloadingDone = false
   
+  // Quest 3 Configuration
+  private config = getAdaptiveConfig()
+  
   // Quest 3 Energy Optimization
-  private targetFrameRate: number = 72 // Quest 3 native refresh rate
+  private targetFrameRate: number = this.config.targetFrameRate.vr
   private lastFrameTime: number = 0
-  private frameTimeThreshold: number = 1000 / 72 // ~13.89ms for 72fps
+  private frameTimeThreshold: number = 1000 / this.config.targetFrameRate.vr
   private isIdle: boolean = false
-  private idleTimeout: number = 5000 // 5 seconds
+  private idleTimeout: number = this.config.energy.idleTimeout
   private lastUserInteraction: number = Date.now()
   private renderRequestId: number | null = null
   
   // Render optimization flags
   private needsRender: boolean = true
-  private uiUpdateInterval: number = 100 // Update UI every 100ms instead of every frame
+  private uiUpdateInterval: number = this.config.energy.uiUpdateInterval
   private lastUIUpdate: number = 0
   
   // Quest 3 Memory Management
-  private memoryPressureThreshold: number = 0.8 // 80% memory usage threshold
+  private memoryPressureThreshold: number = this.config.memory.pressureThreshold
   private currentTextureQuality: 'mobile' | 'std' | 'hq' = 'std'
-  private memoryCheckInterval: number = 10000 // Check memory every 10 seconds
+  private memoryCheckInterval: number = this.config.memory.checkInterval
   private lastMemoryCheck: number = 0
   
-  // Panorama cache system
-  private panoramaCache: Map<string, CachedPhotoDome> = new Map()
-  private maxCacheSize = 10 // Maximum number of panoramas to keep in cache
-  private cacheCleanupThreshold = 15 // Start cleanup when cache exceeds this size
+  // Legacy cache properties - will be removed during cleanup
 
   constructor(canvas: HTMLCanvasElement) {
     // Initialize engine with VR optimizations and improved WebGL error handling
@@ -170,8 +170,10 @@ class VRPanoramaViewer {
     const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene)
     light.intensity = 1
 
-    // Initialize preloader
+    // Initialize preloader, texture streamer, and cache manager
     this.preloader = new PanoramaPreloader()
+    this.textureStreamer = new TextureStreamer(this.scene)
+    this.cacheManager = new CacheManager(this.config)
 
     this.init()
   }
@@ -238,58 +240,10 @@ class VRPanoramaViewer {
   }
 
   private cleanupCache(): void {
-    if (this.panoramaCache.size <= this.maxCacheSize) {
-      return
-    }
-
-    console.log(`Cache cleanup: ${this.panoramaCache.size} entries, target: ${this.maxCacheSize}`)
-
-    // Sort by last used time (oldest first)
-    const cacheEntries = Array.from(this.panoramaCache.entries())
-      .sort((a, b) => a[1].lastUsed - b[1].lastUsed)
-
-    // Remove oldest entries, but never remove the currently active one
-    const entriesToRemove = cacheEntries.slice(0, this.panoramaCache.size - this.maxCacheSize)
-    
-    for (const [key, cachedDome] of entriesToRemove) {
-      if (!cachedDome.isActive) {
-        console.log(`Removing cached panorama: ${key}`)
-        
-        // Proper WebGL resource disposal for Quest 3
-        this.disposePanoramaResources(cachedDome.photoDome)
-        this.panoramaCache.delete(key)
-      }
-    }
-
-    console.log(`Cache cleanup complete: ${this.panoramaCache.size} entries remaining`)
+    this.cacheManager.cleanup()
   }
 
-  private disposePanoramaResources(photoDome: PhotoDome): void {
-    try {
-      // Dispose textures properly to free VRAM on Quest 3
-      if (photoDome.material && photoDome.material.diffuseTexture) {
-        const texture = photoDome.material.diffuseTexture
-        texture.dispose()
-      }
 
-      // Dispose material
-      if (photoDome.material) {
-        photoDome.material.dispose()
-      }
-
-      // Dispose mesh and its vertex/index buffers
-      if (photoDome.mesh) {
-        photoDome.mesh.dispose()
-      }
-
-      // Finally dispose the photodome itself
-      photoDome.dispose()
-      
-      console.log('WebGL resources properly disposed for Quest 3')
-    } catch (error) {
-      console.warn('Error during resource disposal:', error)
-    }
-  }
 
   private async loadPanorama(panoramaId: string): Promise<void> {
     const panoramaInfo = this.panoramaData[panoramaId]
@@ -304,26 +258,20 @@ class VRPanoramaViewer {
     
     const cacheKey = this.getCacheKey(panoramaId, isVR, isMobile)
 
-    // Mark all cached panoramas as inactive
-    this.panoramaCache.forEach(cached => {
-      cached.isActive = false
-      if (cached.photoDome.mesh) {
-        cached.photoDome.mesh.setEnabled(false)
-      }
-    })
+    // Mark all cached panoramas as inactive using CacheManager
+    this.cacheManager.markActive('') // Mark none as active initially
 
     // Clear hotspots (they need to be recreated for each panorama)
     this.clearHotspots()
 
     let photoDome: PhotoDome
 
-    // Check if panorama is already cached
-    if (this.panoramaCache.has(cacheKey)) {
+    // Check if panorama is already cached using CacheManager
+    if (this.cacheManager.has(cacheKey)) {
       console.log(`Using cached panorama: ${cacheKey}`)
-      const cached = this.panoramaCache.get(cacheKey)!
+      const cached = this.cacheManager.get(cacheKey)!
       photoDome = cached.photoDome
-      cached.isActive = true
-      cached.lastUsed = Date.now()
+      this.cacheManager.markActive(cacheKey)
       
       // Enable the cached photodome
       if (photoDome.mesh) {
@@ -332,25 +280,30 @@ class VRPanoramaViewer {
     } else {
       console.log(`Loading new panorama: ${cacheKey}`)
       
-      // Determine image path
-      let imageSuffix = '_std.jpg' // Default to standard resolution
-      if (isMobile && !isVR) {
-        imageSuffix = '_mobile.jpg' // Lower resolution for mobile
-      } else if (isVR) {
-        imageSuffix = '_hq.jpg' // Highest resolution for VR
+      // Use texture streaming for better Quest 3 performance
+      const basePath = import.meta.env.BASE_URL
+      const baseImageUrl = `${basePath}panos/optimized_natural/${panoramaInfo.image}`
+      
+      // Determine target quality based on current settings and memory pressure
+      let targetQuality: 'mobile' | 'std' | 'hq' = this.currentTextureQuality
+      if (isVR && this.currentTextureQuality === 'std') {
+        targetQuality = 'hq' // Prefer HQ in VR when possible
       }
       
-      const basePath = import.meta.env.BASE_URL
-      const imagePath = `${basePath}panos/optimized_natural/${panoramaInfo.image.replace('.jpg', imageSuffix)}`
-      
-      // Check if image is preloaded
-      const preloadedUrl = this.preloader.getPreloadedImage(imagePath)
-      const finalImagePath = preloadedUrl || imagePath
-      
       try {
+        // Create PhotoDome with streaming texture system
+        console.log(`Creating PhotoDome with streaming texture: ${targetQuality}`)
+        
+        // Get initial texture (mobile quality for instant display)
+        const streamedTexture = await this.textureStreamer.streamTexture(
+          baseImageUrl,
+          targetQuality,
+          panoramaId === this.currentPanorama ? 10 : 1 // High priority for current panorama
+        )
+        
         photoDome = new PhotoDome(
           `dome_${cacheKey}`,
-          finalImagePath,
+          '', // Empty URL - we'll set texture manually
           {
             resolution: isVR ? 128 : 64, // Higher resolution for VR
             size: 1000,
@@ -359,6 +312,11 @@ class VRPanoramaViewer {
           },
           this.scene
         )
+        
+        // Manually assign the streamed texture
+        if (photoDome.material) {
+          photoDome.material.diffuseTexture = streamedTexture
+        }
 
         // Fix for VR headsets - ensure proper material configuration
         if (photoDome.material) {
@@ -387,17 +345,8 @@ class VRPanoramaViewer {
           }
         }
 
-        // Add to cache
-        this.panoramaCache.set(cacheKey, {
-          photoDome,
-          isActive: true,
-          lastUsed: Date.now()
-        })
-
-        // Cleanup cache if it gets too large
-        if (this.panoramaCache.size > this.cacheCleanupThreshold) {
-          this.cleanupCache()
-        }
+        // Add to cache using CacheManager
+        this.cacheManager.set(cacheKey, photoDome, true)
 
       } catch (error) {
         console.error('Failed to load panorama:', panoramaId, error)
@@ -425,7 +374,7 @@ class VRPanoramaViewer {
       this.preloadConnectedPanoramas(panoramaId)
     }
 
-    console.log(`Cache status: ${this.panoramaCache.size} panoramas cached`)
+    console.log(`Cache status: ${this.cacheManager.getSize()} panoramas cached`)
   }
 
   private startBackgroundPreloading(): void {
@@ -496,7 +445,7 @@ class VRPanoramaViewer {
 
   private updateInfoText(): void {
     if (this.infoText) {
-      const cacheInfo = `\nCached: ${this.panoramaCache.size} panoramas`
+      const cacheInfo = `\nCached: ${this.cacheManager.getSize()} panoramas`
       this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}${cacheInfo}`
     }
   }
@@ -1891,6 +1840,34 @@ class VRPanoramaViewer {
     console.log(`Started adaptive render loop - Target: ${this.targetFrameRate}fps for Quest 3`)
   }
 
+  public dispose(): void {
+    // Stop render loop
+    if (this.renderRequestId) {
+      cancelAnimationFrame(this.renderRequestId)
+      this.renderRequestId = null
+    }
+
+    // Dispose all resources
+    this.aggressiveCleanupCache()
+    this.textureStreamer.dispose()
+    this.preloader.dispose()
+    this.cacheManager.clear()
+    
+    // Dispose UI resources
+    this.disposeVRCaption()
+    this.disposeFloorplanUI()
+    
+    if (this.desktopUI) {
+      this.desktopUI.dispose()
+    }
+
+    // Dispose scene and engine
+    this.scene.dispose()
+    this.engine.dispose()
+    
+    console.log('VRPanoramaViewer completely disposed')
+  }
+
   private updateUIElements(_currentTime: number): void {
     // Update VR caption position (only when in VR and if caption exists)
     if (this.isVRActive && this.vrCaptionContainer) {
@@ -1983,16 +1960,7 @@ class VRPanoramaViewer {
 
   private clearCacheForRecovery(): void {
     // Clear panorama cache to free memory during context recovery
-    for (const [key, cachedDome] of this.panoramaCache.entries()) {
-      if (!cachedDome.isActive) {
-        try {
-          cachedDome.photoDome.dispose()
-        } catch (e) {
-          // Ignore disposal errors during context loss
-        }
-        this.panoramaCache.delete(key)
-      }
-    }
+    this.cacheManager.aggressiveCleanup()
   }
 
   private recreateResourcesAfterContextLoss(): void {
@@ -2033,14 +2001,14 @@ class VRPanoramaViewer {
       }
 
       // Also check cache size as a secondary indicator
-      if (this.panoramaCache.size > this.maxCacheSize * 1.5) {
+      if (this.cacheManager.getSize() > this.config.memory.cacheSize.cleanup) {
         console.warn('Quest 3 cache size exceeded - forcing cleanup')
         this.aggressiveCleanupCache()
       }
 
     } catch (error) {
       // Memory API not available - use cache size as fallback
-      if (this.panoramaCache.size > this.maxCacheSize) {
+      if (this.cacheManager.getSize() > this.config.memory.cacheSize.max) {
         this.cleanupCache()
       }
     }
@@ -2057,10 +2025,10 @@ class VRPanoramaViewer {
     // Step 2: Aggressive cache cleanup
     this.aggressiveCleanupCache()
 
-    // Step 3: If still high pressure, reduce cache size
+    // Step 3: If still high pressure, reduce cache size (handled by config)
     if (memoryUsage > 0.9) {
-      this.maxCacheSize = Math.max(3, this.maxCacheSize - 2)
-      console.log(`Reduced cache size to ${this.maxCacheSize} due to extreme memory pressure`)
+      console.log('Extreme memory pressure detected - forcing aggressive cleanup')
+      this.aggressiveCleanupCache()
     }
 
     // Step 4: Force garbage collection if available
@@ -2108,19 +2076,17 @@ class VRPanoramaViewer {
   private aggressiveCleanupCache(): void {
     console.log('Performing aggressive cache cleanup for Quest 3')
     
-    // Remove all inactive panoramas
-    for (const [key, cachedDome] of this.panoramaCache.entries()) {
-      if (!cachedDome.isActive) {
-        this.disposePanoramaResources(cachedDome.photoDome)
-        this.panoramaCache.delete(key)
-      }
-    }
+    // Use CacheManager's aggressive cleanup
+    this.cacheManager.aggressiveCleanup()
 
     // Clean up preloader cache as well
     this.preloader.dispose()
     this.preloader = new PanoramaPreloader()
+    
+    // Clean up texture streamer cache
+    this.textureStreamer.cleanup()
 
-    console.log(`Aggressive cleanup complete: ${this.panoramaCache.size} panoramas remaining`)
+    console.log(`Aggressive cleanup complete: ${this.cacheManager.getSize()} panoramas remaining`)
   }
 
   private updateIdleState(): void {
@@ -2129,20 +2095,21 @@ class VRPanoramaViewer {
 
     if (timeSinceInteraction > this.idleTimeout && !this.isIdle) {
       this.isIdle = true
-      this.targetFrameRate = this.isVRActive ? 36 : 30 // Reduce to half rate when idle
+      this.targetFrameRate = this.config.targetFrameRate.idle
       this.frameTimeThreshold = 1000 / this.targetFrameRate
       console.log(`Quest 3 entered idle mode - Frame rate reduced to ${this.targetFrameRate}fps`)
     } else if (timeSinceInteraction <= this.idleTimeout && this.isIdle) {
       this.isIdle = false
-      this.targetFrameRate = this.isVRActive ? 72 : 60 // Restore full rate
+      this.targetFrameRate = this.isVRActive ? this.config.targetFrameRate.vr : this.config.targetFrameRate.desktop
       this.frameTimeThreshold = 1000 / this.targetFrameRate
       console.log(`Quest 3 exited idle mode - Frame rate restored to ${this.targetFrameRate}fps`)
     }
   }
 
   private adjustFrameRate(): void {
-    // Dynamically adjust frame rate based on VR state
-    const newTargetFrameRate = this.isVRActive ? (this.isIdle ? 36 : 72) : (this.isIdle ? 30 : 60)
+    // Dynamically adjust frame rate based on VR state using config
+    const baseRate = this.isVRActive ? this.config.targetFrameRate.vr : this.config.targetFrameRate.desktop
+    const newTargetFrameRate = this.isIdle ? this.config.targetFrameRate.idle : baseRate
     
     if (newTargetFrameRate !== this.targetFrameRate) {
       this.targetFrameRate = newTargetFrameRate

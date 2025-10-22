@@ -1016,7 +1016,6 @@ class VRPanoramaViewer {
 
   private onExitVR(): void {
     console.log('🖥️  EXITING VR MODE - Restoring desktop UI')
-    this.disposeFloorplanUI()
     this.disposeVRCaption()
     
     // Restore desktop UI when exiting VR mode with improved reliability

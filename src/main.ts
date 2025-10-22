@@ -86,10 +86,10 @@ class VRPanoramaViewer {
   private preloader: PanoramaPreloader
   private initialPreloadingDone = false
   
-  // Panorama cache system
+  // Panorama cache system - QUEST 3 OPTIMIZED
   private panoramaCache: Map<string, CachedPhotoDome> = new Map()
-  private maxCacheSize = 10 // Maximum number of panoramas to keep in cache
-  private cacheCleanupThreshold = 15 // Start cleanup when cache exceeds this size
+  private maxCacheSize = 6 // Reduced for Quest 3 - more conservative memory usage
+  private cacheCleanupThreshold = 8 // Start cleanup earlier to prevent memory pressure
 
   constructor(canvas: HTMLCanvasElement) {
     // Initialize engine with VR optimizations and improved WebGL error handling
@@ -178,9 +178,14 @@ class VRPanoramaViewer {
     // Setup UI
     this.setupUI()
     
-    // Start render loop
+    // Start render loop with performance monitoring for Quest 3
     this.engine.runRenderLoop(() => {
+      const frameStart = performance.now()
       this.scene.render()
+      const frameEnd = performance.now()
+      
+      // Monitor performance for adaptive preloading
+      this.updatePerformanceMetrics(frameEnd - frameStart)
     })
 
     // Handle resize
@@ -239,6 +244,79 @@ class VRPanoramaViewer {
     }
 
     console.log(`Cache cleanup complete: ${this.panoramaCache.size} entries remaining`)
+  }
+
+  private shouldPreload(): boolean {
+    // QUEST 3 MEMORY-AWARE PRELOADING
+    try {
+      // Check if we have memory information (Chrome/Edge)
+      if ('memory' in performance && (performance as any).memory) {
+        const memInfo = (performance as any).memory
+        const memoryUsage = memInfo.usedJSHeapSize / memInfo.totalJSHeapSize
+        
+        if (memoryUsage > 0.75) { // Above 75% memory usage
+          console.log(`🚫 Skipping preload: High memory usage (${(memoryUsage * 100).toFixed(1)}%)`)
+          return false
+        }
+      }
+
+      // Check cache size (don't preload if cache is getting full)
+      if (this.panoramaCache.size >= this.maxCacheSize - 2) {
+        console.log(`🚫 Skipping preload: Cache nearly full (${this.panoramaCache.size}/${this.maxCacheSize})`)
+        return false
+      }
+
+      // In VR mode, be more conservative
+      if (this.isVRActive && this.panoramaCache.size >= 6) {
+        console.log(`🚫 Skipping preload: VR mode with sufficient cache (${this.panoramaCache.size})`)
+        return false
+      }
+
+      // Check if user is actively navigating (disable background preloading during rapid navigation)
+      const now = Date.now()
+      if (this.lastNavigationTime && (now - this.lastNavigationTime) < 3000) {
+        console.log(`🚫 Skipping preload: Recent navigation detected`)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      // If any memory checks fail, default to allowing preload but log the issue
+      console.warn('Memory check failed, allowing preload:', error)
+      return true
+    }
+  }
+
+  private updatePerformanceMetrics(frameTime: number): void {
+    // Update rolling average
+    this.performanceMonitor.averageFrameTime = 
+      (this.performanceMonitor.averageFrameTime * 0.95) + (frameTime * 0.05)
+    
+    // Detect frame drops (> 20ms = below 50fps)
+    if (frameTime > 20) {
+      this.performanceMonitor.frameDrops++
+      
+      // If performance is poor, switch to more conservative preloading
+      if (this.performanceMonitor.frameDrops > 10 && this.preloadingMode !== 'conservative') {
+        console.log('🐌 Performance issue detected, switching to conservative preloading')
+        this.preloadingMode = 'conservative'
+        this.performanceMonitor.frameDrops = 0 // Reset counter
+      }
+    }
+    
+    // Reset frame drop counter periodically
+    if (Date.now() - this.performanceMonitor.lastFrameTime > 10000) { // Every 10 seconds
+      this.performanceMonitor.frameDrops = Math.max(0, this.performanceMonitor.frameDrops - 1)
+      this.performanceMonitor.lastFrameTime = Date.now()
+    }
+  }
+
+  private lastNavigationTime: number = 0
+  private preloadingMode: 'conservative' | 'balanced' | 'aggressive' = 'conservative' // Quest 3 default
+  private performanceMonitor = {
+    frameDrops: 0,
+    lastFrameTime: 0,
+    averageFrameTime: 16.67 // Target 60fps
   }
 
   private async loadPanorama(panoramaId: string): Promise<void> {
@@ -383,52 +461,83 @@ class VRPanoramaViewer {
       return
     }
 
-    // Get all panorama images that are connected to current panorama
-    this.preloadConnectedPanoramas(this.currentPanorama)
-    this.initialPreloadingDone = true
+    // QUEST 3 OPTIMIZATION: Delay initial preloading to allow user interaction first
+    setTimeout(() => {
+      if (this.shouldPreload()) {
+        console.log('🔄 Starting delayed background preloading for Quest 3 optimization')
+        this.preloadConnectedPanoramas(this.currentPanorama)
+      } else {
+        console.log('⚠️ Skipping initial background preloading due to constraints')
+      }
+      this.initialPreloadingDone = true
+    }, 2000) // 2 second delay to prioritize initial rendering
   }
 
   private preloadConnectedPanoramas(panoramaId: string): void {
     const currentPanorama = this.panoramaData[panoramaId]
     if (!currentPanorama) return
 
-    // Get connected panorama images
+    // QUEST 3 OPTIMIZATION: Only preload immediate next panoramas, not all qualities
     const connectedImages: string[] = []
     const basePath = import.meta.env.BASE_URL
 
-    // Add images from current panorama's links
-    currentPanorama.links.forEach(link => {
+    // QUEST 3 OPTIMIZATION: Adaptive preloading based on mode
+    let maxLinks: number
+    switch (this.preloadingMode) {
+      case 'conservative':
+        maxLinks = this.isVRActive ? 2 : 3 // Even less in VR
+        break
+      case 'balanced':
+        maxLinks = this.isVRActive ? 3 : 4
+        break
+      case 'aggressive':
+        maxLinks = this.isVRActive ? 4 : 6
+        break
+    }
+    
+    const limitedLinks = currentPanorama.links.slice(0, maxLinks)
+
+    limitedLinks.forEach(link => {
       const targetPanorama = this.panoramaData[link.to]
       if (targetPanorama) {
-        // Add different quality versions with proper absolute URLs
         const baseImageName = targetPanorama.image.replace('.jpg', '')
         const imagePath = `panos/optimized_natural/`
-        
-        // Construct complete URLs with origin
         const origin = window.location.origin
-        const stdUrl = `${origin}${basePath}${imagePath}${baseImageName}_std.jpg`
-        const mobileUrl = `${origin}${basePath}${imagePath}${baseImageName}_mobile.jpg`
-        const hrUrl = `${origin}${basePath}${imagePath}${baseImageName}.jpg`
         
-        connectedImages.push(stdUrl)
-        connectedImages.push(mobileUrl)
-        connectedImages.push(hrUrl)
+        // QUEST 3 OPTIMIZATION: Only preload the most appropriate quality
+        let imageUrl: string
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+        
+        if (this.isVRActive) {
+          // VR: Preload standard quality (good balance for Quest 3)
+          imageUrl = `${origin}${basePath}${imagePath}${baseImageName}_std.jpg`
+        } else if (isMobile) {
+          // Mobile: Preload mobile quality
+          imageUrl = `${origin}${basePath}${imagePath}${baseImageName}_mobile.jpg`
+        } else {
+          // Desktop: Preload standard quality
+          imageUrl = `${origin}${basePath}${imagePath}${baseImageName}_std.jpg`
+        }
+        
+        connectedImages.push(imageUrl)
       }
     })
 
-    if (connectedImages.length > 0) {
+    // QUEST 3 OPTIMIZATION: Check memory usage before preloading
+    if (connectedImages.length > 0 && this.shouldPreload()) {
+      console.log(`🔄 Quest 3 Optimized Preloading: ${connectedImages.length} images (limited)`)
       this.preloader.startPreloading(
         connectedImages,
         '', // Empty base path since we already have complete URLs
         (progress, total) => {
-          // Update UI progress display
           this.updatePreloadProgress(progress, total)
         },
         () => {
-          // Preloading complete - update UI
           this.updateInfoText()
         }
       )
+    } else {
+      console.log('⚠️ Skipping preload due to memory constraints or no images to preload')
     }
   }
 
@@ -447,7 +556,10 @@ class VRPanoramaViewer {
   private updateInfoText(): void {
     if (this.infoText) {
       const cacheInfo = `\nCached: ${this.panoramaCache.size} panoramas`
-      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}${cacheInfo}`
+      const modeInfo = `\nMode: ${this.preloadingMode}`
+      const avgFrameTime = this.performanceMonitor.averageFrameTime.toFixed(1)
+      const performanceInfo = `\nFrame: ${avgFrameTime}ms`
+      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}${cacheInfo}${modeInfo}${performanceInfo}`
     }
   }
 
@@ -583,6 +695,8 @@ class VRPanoramaViewer {
   }
 
   private async navigateToPanorama(targetPanorama: string): Promise<void> {
+    // Track navigation timing for preload optimization
+    this.lastNavigationTime = Date.now()
     await this.loadPanorama(targetPanorama)
   }
 
@@ -1121,11 +1235,88 @@ class VRPanoramaViewer {
 
     // Store reference to update later
     this.infoText = infoText
+
+    // Add preloading mode toggle for Quest 3 optimization
+    this.addPreloadingToggle()
   }
 
   private getCurrentPanoramaDisplayName(): string {
     const parts = this.currentPanorama.split('_')
     return parts.slice(1).join(' ').replace(/([A-Z])/g, ' $1').trim()
+  }
+
+  private addPreloadingToggle(): void {
+    if (!this.desktopUI) return
+
+    // Add preloading mode selector for Quest 3 optimization
+    const preloadPanel = new Rectangle('preloadPanel')
+    preloadPanel.width = '220px'
+    preloadPanel.height = '140px'
+    preloadPanel.cornerRadius = 10
+    preloadPanel.color = 'white'
+    preloadPanel.thickness = 2
+    preloadPanel.background = 'rgba(0, 0, 0, 0.7)'
+    preloadPanel.top = '150px'
+    preloadPanel.left = '20px'
+    preloadPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
+    preloadPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    this.desktopUI.addControl(preloadPanel)
+
+    const titleText = new TextBlock('preloadTitle')
+    titleText.text = 'Preloading Mode\n(Quest 3 Battery)'
+    titleText.color = 'white'
+    titleText.fontSize = 14
+    titleText.fontWeight = 'bold'
+    titleText.top = '-35px'
+    titleText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    preloadPanel.addControl(titleText)
+
+    // Mode buttons
+    const modes: Array<{name: 'conservative' | 'balanced' | 'aggressive', label: string, desc: string}> = [
+      { name: 'conservative', label: 'Battery+', desc: 'Best battery' },
+      { name: 'balanced', label: 'Balanced', desc: 'Good balance' },
+      { name: 'aggressive', label: 'Performance', desc: 'Fast loading' }
+    ]
+
+    modes.forEach((mode, index) => {
+      const button = Button.CreateSimpleButton(`preload_${mode.name}`, `${mode.label}\n${mode.desc}`)
+      button.widthInPixels = 60
+      button.heightInPixels = 50
+      button.color = 'white'
+      button.cornerRadius = 5
+      button.fontSize = 10
+      button.top = '10px'
+      button.left = `${-70 + (index * 70)}px`
+      
+      // Highlight current mode
+      if (mode.name === this.preloadingMode) {
+        button.background = 'rgba(0, 150, 255, 0.8)'
+      } else {
+        button.background = 'rgba(80, 80, 80, 0.6)'
+      }
+      
+      button.onPointerClickObservable.add(() => {
+        this.preloadingMode = mode.name
+        console.log(`🔄 Preloading mode changed to: ${mode.name}`)
+        
+        // Update button appearances by finding them in the panel's children
+        preloadPanel.children.forEach(child => {
+          if (child instanceof Button && child.name?.startsWith('preload_')) {
+            const buttonMode = child.name.replace('preload_', '') as 'conservative' | 'balanced' | 'aggressive'
+            if (buttonMode === this.preloadingMode) {
+              child.background = 'rgba(0, 150, 255, 0.8)'
+            } else {
+              child.background = 'rgba(80, 80, 80, 0.6)'
+            }
+          }
+        })
+        
+        // Update info text
+        this.updateInfoText()
+      })
+      
+      preloadPanel.addControl(button)
+    })
   }
 
   private setupFloorplanUI(): void {

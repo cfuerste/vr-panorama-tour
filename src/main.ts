@@ -86,6 +86,26 @@ class VRPanoramaViewer {
   private preloader: PanoramaPreloader
   private initialPreloadingDone = false
   
+  // Quest 3 Energy Optimization
+  private targetFrameRate: number = 72 // Quest 3 native refresh rate
+  private lastFrameTime: number = 0
+  private frameTimeThreshold: number = 1000 / 72 // ~13.89ms for 72fps
+  private isIdle: boolean = false
+  private idleTimeout: number = 5000 // 5 seconds
+  private lastUserInteraction: number = Date.now()
+  private renderRequestId: number | null = null
+  
+  // Render optimization flags
+  private needsRender: boolean = true
+  private uiUpdateInterval: number = 100 // Update UI every 100ms instead of every frame
+  private lastUIUpdate: number = 0
+  
+  // Quest 3 Memory Management
+  private memoryPressureThreshold: number = 0.8 // 80% memory usage threshold
+  private currentTextureQuality: 'mobile' | 'std' | 'hq' = 'std'
+  private memoryCheckInterval: number = 10000 // Check memory every 10 seconds
+  private lastMemoryCheck: number = 0
+  
   // Panorama cache system
   private panoramaCache: Map<string, CachedPhotoDome> = new Map()
   private maxCacheSize = 10 // Maximum number of panoramas to keep in cache
@@ -112,20 +132,8 @@ class VRPanoramaViewer {
       adaptToDeviceRatio: true
     })
 
-    // Add WebGL error handling
-    const gl = this.engine._gl
-    if (gl) {
-      // Override WebGL functions to catch and handle framebuffer errors gracefully
-      const originalFramebufferTexture2D = gl.framebufferTexture2D
-      gl.framebufferTexture2D = function(target: number, attachment: number, textarget: number, texture: WebGLTexture | null, level: number) {
-        try {
-          return originalFramebufferTexture2D.call(this, target, attachment, textarget, texture, level)
-        } catch (error) {
-          console.warn('WebGL framebuffer operation failed, continuing:', error)
-          return null
-        }
-      }
-    }
+    // Enhanced WebGL error handling for Quest 3
+    this.setupWebGLErrorHandling()
 
     // Create scene with performance optimizations
     this.scene = new Scene(this.engine)
@@ -145,12 +153,18 @@ class VRPanoramaViewer {
       console.log('WebGL context restored successfully')
     })
 
-    // Create camera
+    // Create camera with interaction tracking for Quest 3 energy management
     this.camera = new UniversalCamera('Camera', new Vector3(0, 0, 0), this.scene)
     this.camera.minZ = 0.1
     this.camera.maxZ = 1000
     this.camera.fov = Math.PI / 3
     this.camera.attachControl(canvas, true)
+
+    // Track camera interactions for idle detection
+    canvas.addEventListener('pointerdown', () => this.markUserInteraction())
+    canvas.addEventListener('pointermove', () => this.markUserInteraction())
+    canvas.addEventListener('wheel', () => this.markUserInteraction())
+    canvas.addEventListener('keydown', () => this.markUserInteraction())
 
     // Add lighting
     const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene)
@@ -178,10 +192,8 @@ class VRPanoramaViewer {
     // Setup UI
     this.setupUI()
     
-    // Start render loop
-    this.engine.runRenderLoop(() => {
-      this.scene.render()
-    })
+    // Start adaptive render loop for Quest 3 energy efficiency
+    this.startAdaptiveRenderLoop()
 
     // Handle resize
     window.addEventListener('resize', () => {
@@ -206,13 +218,22 @@ class VRPanoramaViewer {
     }
   }
 
-  private getCacheKey(panoramaId: string, isVR: boolean, isMobile: boolean): string {
+  private getCacheKey(panoramaId: string, isVR: boolean, _isMobile: boolean): string {
+    // Use current texture quality setting for Quest 3 memory management
     let suffix = '_std.jpg'
-    if (isMobile && !isVR) {
-      suffix = '_mobile.jpg'
-    } else if (isVR) {
-      suffix = '_hq.jpg'
+    
+    switch (this.currentTextureQuality) {
+      case 'mobile':
+        suffix = '_mobile.jpg'
+        break
+      case 'std':
+        suffix = '_std.jpg'
+        break
+      case 'hq':
+        suffix = isVR ? '_hq.jpg' : '_std.jpg' // HQ only in VR mode
+        break
     }
+    
     return `${panoramaId}_${suffix}`
   }
 
@@ -233,12 +254,41 @@ class VRPanoramaViewer {
     for (const [key, cachedDome] of entriesToRemove) {
       if (!cachedDome.isActive) {
         console.log(`Removing cached panorama: ${key}`)
-        cachedDome.photoDome.dispose()
+        
+        // Proper WebGL resource disposal for Quest 3
+        this.disposePanoramaResources(cachedDome.photoDome)
         this.panoramaCache.delete(key)
       }
     }
 
     console.log(`Cache cleanup complete: ${this.panoramaCache.size} entries remaining`)
+  }
+
+  private disposePanoramaResources(photoDome: PhotoDome): void {
+    try {
+      // Dispose textures properly to free VRAM on Quest 3
+      if (photoDome.material && photoDome.material.diffuseTexture) {
+        const texture = photoDome.material.diffuseTexture
+        texture.dispose()
+      }
+
+      // Dispose material
+      if (photoDome.material) {
+        photoDome.material.dispose()
+      }
+
+      // Dispose mesh and its vertex/index buffers
+      if (photoDome.mesh) {
+        photoDome.mesh.dispose()
+      }
+
+      // Finally dispose the photodome itself
+      photoDome.dispose()
+      
+      console.log('WebGL resources properly disposed for Quest 3')
+    } catch (error) {
+      console.warn('Error during resource disposal:', error)
+    }
   }
 
   private async loadPanorama(panoramaId: string): Promise<void> {
@@ -526,6 +576,9 @@ class VRPanoramaViewer {
       hotspot.actionManager.registerAction(new ExecuteCodeAction(
         ActionManager.OnPickTrigger,
         () => {
+          // Mark user interaction for Quest 3 energy management
+          this.markUserInteraction()
+
           // Strong haptic feedback on selection
           if (this.isVRActive && this.xrHelper?.input) {
             this.xrHelper.input.controllers.forEach(controller => {
@@ -583,7 +636,9 @@ class VRPanoramaViewer {
   }
 
   private async navigateToPanorama(targetPanorama: string): Promise<void> {
+    this.requestRender() // Force render during navigation
     await this.loadPanorama(targetPanorama)
+    this.requestRender() // Force render after loading
   }
 
   private async setupWebXR(): Promise<void> {
@@ -1605,7 +1660,7 @@ class VRPanoramaViewer {
     console.log(`Updated floorplan markers for current location: ${currentData.name} on selected floor: ${this.selectedFloor}`)
   }
 
-  // Update the setupFloorplanUpdateObserver method to use the new view angle system
+  // Update the setupFloorplanUpdateObserver method to use render-on-demand for Quest 3 optimization
   private setupFloorplanUpdateObserver(): void {
     // Remove existing observer if any
     if (this.floorplanUpdateObserver) {
@@ -1613,15 +1668,10 @@ class VRPanoramaViewer {
       this.floorplanUpdateObserver = null
     }
     
-    // Setup continuous update for view direction indicator
-    this.floorplanUpdateObserver = this.scene.registerBeforeRender(() => {
-      if (this.floorplanViewDirectionIndicator) {
-        const rightIndicator = this.floorplanViewDirectionIndicator.metadata?.rightIndicator
-        this.updateViewAngle(this.floorplanViewDirectionIndicator, rightIndicator)
-      }
-    })
+    // No longer using continuous observer - UI updates handled in updateUIElements()
+    // This significantly improves Quest 3 performance by reducing per-frame calculations
     
-    console.log('Setup floorplan continuous update observer for view angle')
+    console.log('Floorplan update observer disabled - using render-on-demand for Quest 3 optimization')
   }
 
   // Update the clearFloorplanMarkers method to handle both indicators
@@ -1717,10 +1767,9 @@ class VRPanoramaViewer {
     // Add text directly to UI (no background container)
     this.vrCaptionUI.addControl(captionText)
     
-    // Register update function to keep caption in front of camera
-    this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
-      this.updateVRCaptionPosition()
-    })
+    // VR caption position now updated in updateUIElements() for Quest 3 performance
+    // No render observer needed - reduces per-frame calculations
+    this.vrCaptionRenderObserver = null
   }
 
   private updateVRCaptionPosition(): void {
@@ -1761,6 +1810,352 @@ class VRPanoramaViewer {
     if (this.vrCaptionContainer) {
       this.vrCaptionContainer.dispose()
       this.vrCaptionContainer = null
+    }
+  }
+
+  private disposeFloorplanUI(): void {
+    // Remove floorplan update observer
+    if (this.floorplanUpdateObserver) {
+      this.scene.unregisterBeforeRender(this.floorplanUpdateObserver)
+      this.floorplanUpdateObserver = null
+    }
+
+    // Clear floorplan markers properly
+    this.clearFloorplanMarkers()
+
+    // Dispose floorplan UI texture
+    if (this.floorplanUI) {
+      this.floorplanUI.dispose()
+      this.floorplanUI = null
+    }
+
+    // Dispose floorplan container and its children
+    if (this.floorplanContainer) {
+      // Dispose all child meshes first
+      this.floorplanContainer.getChildMeshes().forEach(mesh => {
+        if (mesh.material) {
+          mesh.material.dispose()
+        }
+        mesh.dispose()
+      })
+      
+      this.floorplanContainer.dispose()
+      this.floorplanContainer = null
+    }
+
+    // Clear image reference
+    this.floorplanImage = null
+
+    console.log('Floorplan UI properly disposed for Quest 3')
+  }
+
+  private startAdaptiveRenderLoop(): void {
+    // Adaptive render loop for Quest 3 energy efficiency
+    const render = (currentTime: number) => {
+      const deltaTime = currentTime - this.lastFrameTime
+
+      // Check if enough time has passed for target frame rate
+      if (deltaTime >= this.frameTimeThreshold) {
+        // Update user interaction detection
+        this.updateIdleState()
+
+        // Only render if changes occurred or forced
+        if (this.needsRender || this.isVRActive) {
+          this.scene.render()
+          this.needsRender = false // Reset render flag
+        }
+
+        // Update UI less frequently to improve performance
+        if (currentTime - this.lastUIUpdate > this.uiUpdateInterval) {
+          this.updateUIElements(currentTime)
+          this.lastUIUpdate = currentTime
+        }
+
+        // Check memory usage periodically for Quest 3 optimization
+        if (currentTime - this.lastMemoryCheck > this.memoryCheckInterval) {
+          this.checkMemoryPressure()
+          this.lastMemoryCheck = currentTime
+        }
+
+        this.lastFrameTime = currentTime
+
+        // Adjust frame rate based on VR mode and idle state
+        this.adjustFrameRate()
+      }
+
+      // Schedule next frame
+      this.renderRequestId = requestAnimationFrame(render)
+    }
+
+    this.renderRequestId = requestAnimationFrame(render)
+    console.log(`Started adaptive render loop - Target: ${this.targetFrameRate}fps for Quest 3`)
+  }
+
+  private updateUIElements(_currentTime: number): void {
+    // Update VR caption position (only when in VR and if caption exists)
+    if (this.isVRActive && this.vrCaptionContainer) {
+      this.updateVRCaptionPosition()
+    }
+
+    // Update floorplan view direction (less frequently for performance)
+    if (this.floorplanViewDirectionIndicator && this.isVRActive) {
+      const rightIndicator = this.floorplanViewDirectionIndicator.metadata?.rightIndicator
+      if (rightIndicator) {
+        this.updateViewAngle(this.floorplanViewDirectionIndicator, rightIndicator)
+      }
+    }
+
+    // Mark that we need to render due to UI updates
+    this.needsRender = true
+  }
+
+  private requestRender(): void {
+    this.needsRender = true
+  }
+
+  private setupWebGLErrorHandling(): void {
+    const gl = this.engine._gl
+    if (!gl) return
+
+    // Enhanced WebGL error handling for Quest 3 stability
+    let contextLostCount = 0
+    const maxContextLossRecoveryAttempts = 3
+
+    // Monitor WebGL errors without interfering with normal operation
+    const checkWebGLError = (operation: string) => {
+      const error = gl.getError()
+      if (error !== gl.NO_ERROR) {
+        console.warn(`WebGL error after ${operation}:`, this.getWebGLErrorName(error))
+        
+        // Don't attempt recovery for common/harmless errors
+        if (error === gl.INVALID_FRAMEBUFFER_OPERATION || error === gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT) {
+          return false // Non-critical, continue normally
+        }
+        
+        return true // Critical error
+      }
+      return false
+    }
+
+    // Proper context loss handling
+    this.engine.onContextLostObservable.add(() => {
+      contextLostCount++
+      console.warn(`WebGL context lost (attempt ${contextLostCount}/${maxContextLossRecoveryAttempts})`)
+      
+      if (contextLostCount <= maxContextLossRecoveryAttempts) {
+        // Clear cache to reduce memory pressure during recovery
+        this.clearCacheForRecovery()
+        console.log('Cleared cache for context recovery')
+      } else {
+        console.error('Maximum context loss recovery attempts exceeded - manual reload required')
+        this.showContextLossError()
+      }
+    })
+
+    this.engine.onContextRestoredObservable.add(() => {
+      console.log('WebGL context restored - reinitializing resources')
+      this.recreateResourcesAfterContextLoss()
+    })
+
+    // Periodically check for WebGL errors (less intrusive than overriding functions)
+    setInterval(() => {
+      if (this.engine.isDisposed) return
+      checkWebGLError('periodic check')
+    }, 5000) // Check every 5 seconds
+  }
+
+  private getWebGLErrorName(error: number): string {
+    const gl = this.engine._gl
+    if (!gl) return `Unknown error: ${error}`
+
+    const errorNames: { [key: number]: string } = {
+      [gl.NO_ERROR]: 'NO_ERROR',
+      [gl.INVALID_ENUM]: 'INVALID_ENUM',
+      [gl.INVALID_VALUE]: 'INVALID_VALUE',
+      [gl.INVALID_OPERATION]: 'INVALID_OPERATION',
+      [gl.INVALID_FRAMEBUFFER_OPERATION]: 'INVALID_FRAMEBUFFER_OPERATION',
+      [gl.OUT_OF_MEMORY]: 'OUT_OF_MEMORY',
+      [gl.CONTEXT_LOST_WEBGL]: 'CONTEXT_LOST_WEBGL'
+    }
+
+    return errorNames[error] || `Unknown error: ${error}`
+  }
+
+  private clearCacheForRecovery(): void {
+    // Clear panorama cache to free memory during context recovery
+    for (const [key, cachedDome] of this.panoramaCache.entries()) {
+      if (!cachedDome.isActive) {
+        try {
+          cachedDome.photoDome.dispose()
+        } catch (e) {
+          // Ignore disposal errors during context loss
+        }
+        this.panoramaCache.delete(key)
+      }
+    }
+  }
+
+  private recreateResourcesAfterContextLoss(): void {
+    // Recreate current panorama after context restoration
+    if (this.currentPanorama) {
+      console.log('Recreating current panorama after context restoration')
+      this.loadPanorama(this.currentPanorama).catch(error => {
+        console.error('Failed to recreate panorama after context loss:', error)
+      })
+    }
+    
+    this.requestRender()
+  }
+
+  private showContextLossError(): void {
+    // Show user-friendly error message
+    if (this.infoText) {
+      this.infoText.text = 'WebGL Error: Please reload the page\n(Quest 3 context recovery failed)'
+      this.infoText.color = 'red'
+    }
+  }
+
+  private checkMemoryPressure(): void {
+    // Quest 3 memory monitoring and adaptive quality adjustment
+    try {
+      // Use performance.memory API when available (Chromium-based browsers including Quest)
+      const memInfo = (performance as any).memory
+      if (memInfo) {
+        const memoryUsage = memInfo.usedJSHeapSize / memInfo.totalJSHeapSize
+        
+        if (memoryUsage > this.memoryPressureThreshold) {
+          console.warn(`Quest 3 memory pressure detected: ${(memoryUsage * 100).toFixed(1)}%`)
+          this.handleMemoryPressure(memoryUsage)
+        } else if (memoryUsage < this.memoryPressureThreshold - 0.2 && this.currentTextureQuality === 'mobile') {
+          // Memory pressure reduced, we can increase quality
+          this.increaseTextureQuality()
+        }
+      }
+
+      // Also check cache size as a secondary indicator
+      if (this.panoramaCache.size > this.maxCacheSize * 1.5) {
+        console.warn('Quest 3 cache size exceeded - forcing cleanup')
+        this.aggressiveCleanupCache()
+      }
+
+    } catch (error) {
+      // Memory API not available - use cache size as fallback
+      if (this.panoramaCache.size > this.maxCacheSize) {
+        this.cleanupCache()
+      }
+    }
+  }
+
+  private handleMemoryPressure(memoryUsage: number): void {
+    console.log(`Handling Quest 3 memory pressure: ${(memoryUsage * 100).toFixed(1)}%`)
+
+    // Step 1: Reduce texture quality
+    if (this.currentTextureQuality !== 'mobile') {
+      this.reduceTextureQuality()
+    }
+
+    // Step 2: Aggressive cache cleanup
+    this.aggressiveCleanupCache()
+
+    // Step 3: If still high pressure, reduce cache size
+    if (memoryUsage > 0.9) {
+      this.maxCacheSize = Math.max(3, this.maxCacheSize - 2)
+      console.log(`Reduced cache size to ${this.maxCacheSize} due to extreme memory pressure`)
+    }
+
+    // Step 4: Force garbage collection if available
+    if (typeof (window as any).gc === 'function') {
+      (window as any).gc()
+      console.log('Forced garbage collection for Quest 3')
+    }
+  }
+
+  private reduceTextureQuality(): void {
+    const oldQuality = this.currentTextureQuality
+    
+    if (this.currentTextureQuality === 'hq') {
+      this.currentTextureQuality = 'std'
+    } else if (this.currentTextureQuality === 'std') {
+      this.currentTextureQuality = 'mobile'
+    }
+
+    if (oldQuality !== this.currentTextureQuality) {
+      console.log(`Quest 3 texture quality reduced: ${oldQuality} → ${this.currentTextureQuality}`)
+      // Clear cache to force reload with lower quality
+      this.aggressiveCleanupCache()
+      
+      // Reload current panorama with new quality
+      if (this.currentPanorama) {
+        this.loadPanorama(this.currentPanorama)
+      }
+    }
+  }
+
+  private increaseTextureQuality(): void {
+    const oldQuality = this.currentTextureQuality
+    
+    if (this.currentTextureQuality === 'mobile') {
+      this.currentTextureQuality = 'std'
+    } else if (this.currentTextureQuality === 'std' && this.isVRActive) {
+      this.currentTextureQuality = 'hq'
+    }
+
+    if (oldQuality !== this.currentTextureQuality) {
+      console.log(`Quest 3 texture quality increased: ${oldQuality} → ${this.currentTextureQuality}`)
+    }
+  }
+
+  private aggressiveCleanupCache(): void {
+    console.log('Performing aggressive cache cleanup for Quest 3')
+    
+    // Remove all inactive panoramas
+    for (const [key, cachedDome] of this.panoramaCache.entries()) {
+      if (!cachedDome.isActive) {
+        this.disposePanoramaResources(cachedDome.photoDome)
+        this.panoramaCache.delete(key)
+      }
+    }
+
+    // Clean up preloader cache as well
+    this.preloader.dispose()
+    this.preloader = new PanoramaPreloader()
+
+    console.log(`Aggressive cleanup complete: ${this.panoramaCache.size} panoramas remaining`)
+  }
+
+  private updateIdleState(): void {
+    const now = Date.now()
+    const timeSinceInteraction = now - this.lastUserInteraction
+
+    if (timeSinceInteraction > this.idleTimeout && !this.isIdle) {
+      this.isIdle = true
+      this.targetFrameRate = this.isVRActive ? 36 : 30 // Reduce to half rate when idle
+      this.frameTimeThreshold = 1000 / this.targetFrameRate
+      console.log(`Quest 3 entered idle mode - Frame rate reduced to ${this.targetFrameRate}fps`)
+    } else if (timeSinceInteraction <= this.idleTimeout && this.isIdle) {
+      this.isIdle = false
+      this.targetFrameRate = this.isVRActive ? 72 : 60 // Restore full rate
+      this.frameTimeThreshold = 1000 / this.targetFrameRate
+      console.log(`Quest 3 exited idle mode - Frame rate restored to ${this.targetFrameRate}fps`)
+    }
+  }
+
+  private adjustFrameRate(): void {
+    // Dynamically adjust frame rate based on VR state
+    const newTargetFrameRate = this.isVRActive ? (this.isIdle ? 36 : 72) : (this.isIdle ? 30 : 60)
+    
+    if (newTargetFrameRate !== this.targetFrameRate) {
+      this.targetFrameRate = newTargetFrameRate
+      this.frameTimeThreshold = 1000 / this.targetFrameRate
+      console.log(`Frame rate adjusted for Quest 3: ${this.targetFrameRate}fps (VR: ${this.isVRActive}, Idle: ${this.isIdle})`)
+    }
+  }
+
+  private markUserInteraction(): void {
+    this.lastUserInteraction = Date.now()
+    this.requestRender() // Ensure we render after user interaction
+    if (this.isIdle) {
+      this.updateIdleState() // This will exit idle mode if needed
     }
   }
 
@@ -1811,10 +2206,9 @@ class VRPanoramaViewer {
     // Add text directly to UI (no background container)
     this.vrCaptionUI.addControl(captionText)
     
-    // Register update function to keep caption in front of camera
-    this.vrCaptionRenderObserver = this.scene.registerBeforeRender(() => {
-      this.updateVRCaptionPosition()
-    })
+    // VR caption position now updated in updateUIElements() for Quest 3 performance
+    // No render observer needed - reduces per-frame calculations
+    this.vrCaptionRenderObserver = null
   }
 }
 

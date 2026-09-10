@@ -530,9 +530,9 @@ class VRPanoramaViewer {
       this.preloader.startPreloading(
         connectedImages,
         '', // Empty base path since we already have complete URLs
-        (progress, total) => {
-          this.updatePreloadProgress(progress, total)
-        },
+        // (progress, total) => {
+        //   this.updatePreloadProgress(progress, total)
+        // },
         () => {
           this.updateInfoText()
         }
@@ -542,13 +542,13 @@ class VRPanoramaViewer {
     }
   }
 
-  private updatePreloadProgress(progress: number, total: number): void {
-    // Update info text to show preload progress
-    if (this.infoText) {
-      const progressText = total > 0 ? `\nPreloading: ${progress}/${total}` : ''
-      //this.infoText.text = `\nAktueller Standort:\n${this.getCurrentPanoramaDisplayName()}${progressText}`
-    }
-  }
+  // private updatePreloadProgress(progress: number, total: number): void {
+  //   // Update info text to show preload progress
+  //   if (this.infoText) {
+  //     const progressText = total > 0 ? `\nPreloading: ${progress}/${total}` : ''
+  //     //this.infoText.text = `\nAktueller Standort:\n${this.getCurrentPanoramaDisplayName()}${progressText}`
+  //   }
+  // }
 
   private getCurrentLocationLabel(): string {
     return this.currentLocationLabel

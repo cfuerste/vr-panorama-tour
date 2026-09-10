@@ -1423,14 +1423,12 @@ class VRPanoramaViewer {
     const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { width: floorplanWidth, height: floorplanHeight }, this.scene)
     floorplanPlane.parent = this.floorplanContainer
     
-    // Fix flipped orientation by rotating the plane
-    floorplanPlane.rotation.y = Math.PI // 180 degree rotation to unflip
+    // The default plane faces -Z, toward the wearer when the controller points
+    // forward (+Z in this scene). Keep +Y up for both the GUI and its hit targets.
     
     if (!this.isVREmulationMode) {
       // Only offset when attached to controller
       floorplanPlane.position = new Vector3(0.275, 0, 0)
-      // Combine the flip correction with the controller rotation
-      //floorplanPlane.rotation = new Vector3(0, Math.PI + Math.PI / 6, 0)
     }
 
     // Load appropriate floorplan image
@@ -1441,7 +1439,10 @@ class VRPanoramaViewer {
     
     console.log('Loading floorplan:', floorplanPath)
     
-    this.floorplanUI = AdvancedDynamicTexture.CreateForMesh(floorplanPlane)
+    // Match the texture to the plane's 3:2 aspect ratio and use the same
+    // logical UI width as desktop so buttons and markers stay readable in VR.
+    this.floorplanUI = AdvancedDynamicTexture.CreateForMesh(floorplanPlane, 960, 640)
+    this.floorplanUI.idealWidth = 320
     
     const background = new Rectangle()
     background.name = 'background' // Add name for easy reference
@@ -1512,9 +1513,7 @@ class VRPanoramaViewer {
     const floors = ['UG', 'EG', 'OG', 'DA']
     const buttonHeight = 30
 
-    // Desktop: place floor buttons like a flex row at the top with even spacing.
-    // VR keeps the old centered placement to avoid changing controller-attached UI behavior.
-    const isDesktopOverlay = !this.isVRActive
+    // Both panels use a logical width of 320: anchor the row to the top edge.
     const desktopPanelWidth = 320
     const desktopHorizontalPadding = 10
     const desktopSpacing = 8
@@ -1522,13 +1521,10 @@ class VRPanoramaViewer {
     const desktopButtonWidth = Math.floor(desktopAvailableWidth / floors.length)
     const desktopTop = 10
 
-    const vrButtonWidth = 50
-    const vrSpacing = 8
-    const vrStartX = -((floors.length * vrButtonWidth + (floors.length - 1) * vrSpacing) / 2)
     
     floors.forEach((floor, index) => {
       const button = new Button(`floor_button_${floor}`)
-      button.widthInPixels = isDesktopOverlay ? desktopButtonWidth : vrButtonWidth
+      button.widthInPixels = desktopButtonWidth
       button.heightInPixels = buttonHeight
       button.cornerRadius = 8
       button.thickness = 3
@@ -1542,18 +1538,11 @@ class VRPanoramaViewer {
         button.color = 'white'
       }
       
-      if (isDesktopOverlay) {
-        button.leftInPixels = desktopHorizontalPadding + (index * (desktopButtonWidth + desktopSpacing))
-        button.topInPixels = desktopTop
-        button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
-        button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-      } else {
-        // Keep existing centered layout in VR mode
-        button.leftInPixels = vrStartX + (index * (vrButtonWidth + vrSpacing))
-        button.topInPixels = -60
-        button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
-        button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
-      }
+      button.leftInPixels = desktopHorizontalPadding + (index * (desktopButtonWidth + desktopSpacing))
+      button.topInPixels = desktopTop
+      button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
+      button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+      if (this.isVRActive) button.zIndex = 1
       
       // Add text label
       const label = new TextBlock()
@@ -1716,6 +1705,13 @@ class VRPanoramaViewer {
     marker.top = `${(adjustedCoords.y * 100)}%`
     marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
     marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    if (this.isVRActive) {
+      // Map coordinates denote the marker's center, not its upper-left corner.
+      marker.left = `${(adjustedCoords.x - 0.5) * 100}%`
+      marker.top = `${(adjustedCoords.y - 0.5) * 100}%`
+      marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
+      marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
+    }
     
     // Add click handler for navigation
     marker.onPointerClickObservable.add(() => {
@@ -1737,17 +1733,20 @@ class VRPanoramaViewer {
     const floorplanImageHeight = 751
     const aspectRatio = floorplanImageWidth / floorplanImageHeight // ~1.33
     
-    // The container is square, so the image will be letterboxed
-    // Since width > height, the image will be letterboxed (black bars on top/bottom)
+    // Match STRETCH_UNIFORM's letterboxing in the VR texture; retain the
+    // existing desktop coordinate mapping.
     let adjustedX = x
     let adjustedY = y
     
-    const containerAspectRatio = 1 // Square container
+    const containerAspectRatio = this.isVRActive ? 960 / 640 : 1
     if (aspectRatio > containerAspectRatio) {
       // Image is wider - letterboxed (black bars top/bottom)
-      const imageHeightInContainer = 1.0 / aspectRatio // Height ratio in container
+      const imageHeightInContainer = containerAspectRatio / aspectRatio
       const letterboxOffset = (1.0 - imageHeightInContainer) / 2
       adjustedY = letterboxOffset + (y * imageHeightInContainer)
+    } else {
+      const imageWidthInContainer = aspectRatio / containerAspectRatio
+      adjustedX = (1 - imageWidthInContainer) / 2 + x * imageWidthInContainer
     }
     
     return { x: adjustedX, y: adjustedY }

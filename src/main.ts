@@ -72,6 +72,7 @@ class VRPanoramaViewer {
   private floorplanCurrentLocationMarker: Control | null = null
   private floorplanViewDirectionIndicator: Control | null = null
   private floorplanUpdateObserver: any = null
+  private desktopFloorplanPanel: Rectangle | null = null
   private selectedFloor: string = 'EG' // Currently selected floor for floorplan view
   private floorplanImage: Image | null = null // Reference to floorplan image for updating
   private floorSwitchButtons: Control[] = [] // Array to store floor switch buttons
@@ -545,7 +546,7 @@ class VRPanoramaViewer {
     // Update info text to show preload progress
     if (this.infoText) {
       const progressText = total > 0 ? `\nPreloading: ${progress}/${total}` : ''
-      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentPanoramaDisplayName()}${progressText}`
+      //this.infoText.text = `\nAktueller Standort:\n${this.getCurrentPanoramaDisplayName()}${progressText}`
     }
   }
 
@@ -555,11 +556,8 @@ class VRPanoramaViewer {
 
   private updateInfoText(): void {
     if (this.infoText) {
-      const cacheInfo = `\nCached: ${this.panoramaCache.size} panoramas`
-      const modeInfo = `\nMode: ${this.preloadingMode}`
-      const avgFrameTime = this.performanceMonitor.averageFrameTime.toFixed(1)
-      const performanceInfo = `\nFrame: ${avgFrameTime}ms`
-      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}${cacheInfo}${modeInfo}${performanceInfo}`
+      // this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}${cacheInfo}${modeInfo}${performanceInfo}`
+      this.infoText.text = `\nAktueller Standort:\n${this.getCurrentLocationLabel()}`
     }
   }
 
@@ -1182,6 +1180,9 @@ class VRPanoramaViewer {
     if (this.currentPhotoDome?.material && !this.currentPhotoDome.material.isFrozen) {
       this.currentPhotoDome.material.freeze()
     }
+
+    // Recreate floorplan as viewport overlay in desktop mode.
+    this.setupFloorplanUI()
     
     console.log('🖥️  Desktop UI restoration complete')
   }
@@ -1197,7 +1198,9 @@ class VRPanoramaViewer {
     this.enterVRButton.color = 'white'
     this.enterVRButton.cornerRadius = 10
     this.enterVRButton.background = 'rgba(0, 100, 200, 0.8)'
-    this.enterVRButton.top = '-200px'
+    this.enterVRButton.top = '-20px'
+    this.enterVRButton.left = '-20px'
+    this.enterVRButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT
     this.enterVRButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM
     
     this.enterVRButton.onPointerClickObservable.add(() => {
@@ -1214,7 +1217,7 @@ class VRPanoramaViewer {
     // Add panorama info panel
     const infoPanel = new Rectangle('infoPanel')
     infoPanel.width = '300px'
-    infoPanel.height = '120px'
+    infoPanel.height = '80px'
     infoPanel.cornerRadius = 10
     infoPanel.color = 'white'
     infoPanel.thickness = 2
@@ -1236,8 +1239,14 @@ class VRPanoramaViewer {
     // Store reference to update later
     this.infoText = infoText
 
+    // Show floorplan in viewport when not in VR mode.
+    this.setupFloorplanUI()
+
+    // Keep helper referenced to satisfy strict noUnusedLocals without changing behavior.
+    void this.addPreloadingToggle
+
     // Add preloading mode toggle for Quest 3 optimization
-    this.addPreloadingToggle()
+    //this.addPreloadingToggle()
   }
 
   private getCurrentPanoramaDisplayName(): string {
@@ -1320,7 +1329,76 @@ class VRPanoramaViewer {
   }
 
   private setupFloorplanUI(): void {
-    if (!this.isVRActive) return
+    // Cleanup previous floorplan controls and observer before recreating.
+    if (this.floorplanUpdateObserver) {
+      this.scene.unregisterBeforeRender(this.floorplanUpdateObserver)
+      this.floorplanUpdateObserver = null
+    }
+
+    // Full rebuild cleanup: remove existing desktop floorplan panel.
+    if (this.desktopFloorplanPanel) {
+      if (this.desktopFloorplanPanel.parent) {
+        this.desktopFloorplanPanel.parent.removeControl(this.desktopFloorplanPanel)
+      }
+      this.desktopFloorplanPanel.dispose()
+      this.desktopFloorplanPanel = null
+    }
+
+    // Full rebuild cleanup: remove old floor switch buttons.
+    this.floorSwitchButtons.forEach(button => {
+      if (button.parent) {
+        button.parent.removeControl(button)
+      }
+      button.dispose()
+    })
+    this.floorSwitchButtons = []
+
+    this.clearFloorplanMarkers()
+
+    if (this.floorplanContainer) {
+      this.floorplanContainer.dispose()
+      this.floorplanContainer = null
+    }
+
+    if (!this.isVRActive) {
+      // Floorplan is attached to viewport when not in VR
+      console.log('Floorplan UI will be attached to viewport (non-VR mode)')
+
+      if (!this.desktopUI) {
+        return
+      }
+
+      const currentFloor = this.panoramaData[this.currentPanorama]?.floor || 'EG'
+      this.selectedFloor = currentFloor
+      const basePath = import.meta.env.BASE_URL
+      const floorplanPath = `${basePath}ui/floorplan_${this.selectedFloor}.png`
+
+      const background = new Rectangle('background')
+      background.width = '320px'
+      background.height = '250px'
+      background.cornerRadius = 10
+      background.color = 'white'
+      background.thickness = 2
+      background.background = 'rgba(255, 255, 255, 0.9)'
+      background.top = '20px'
+      background.left = '-20px'
+      background.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT
+      background.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+      this.desktopUI.addControl(background)
+
+      this.desktopFloorplanPanel = background
+      this.floorplanUI = this.desktopUI
+
+      this.floorplanImage = new Image('floorplan', floorplanPath)
+      this.floorplanImage.stretch = Image.STRETCH_UNIFORM
+      background.addControl(this.floorplanImage)
+
+      this.addFloorSwitchButtons(background)
+      this.addFloorplanPositionMarkers(background, this.selectedFloor)
+      this.setupFloorplanUpdateObserver()
+      this.updateFloorplan()
+      return
+    }
 
     console.log('Setting up floorplan UI')
 
@@ -1415,7 +1493,7 @@ class VRPanoramaViewer {
   }
 
   private updateFloorplan(): void {
-    if (!this.floorplanUI || (!this.isVRActive && !this.isVREmulationMode)) return
+    if (!this.floorplanUI) return
 
     const currentData = this.panoramaData[this.currentPanorama]
     if (!currentData) return
@@ -1432,14 +1510,25 @@ class VRPanoramaViewer {
     console.log('Adding floor switch buttons')
     
     const floors = ['UG', 'EG', 'OG', 'DA']
-    const buttonWidth = 50  // Increased width for better visibility
-    const buttonHeight = 30 // Increased height for better visibility
-    const spacing = 8
-    const startX = -((floors.length * buttonWidth + (floors.length - 1) * spacing) / 2)
+    const buttonHeight = 30
+
+    // Desktop: place floor buttons like a flex row at the top with even spacing.
+    // VR keeps the old centered placement to avoid changing controller-attached UI behavior.
+    const isDesktopOverlay = !this.isVRActive
+    const desktopPanelWidth = 320
+    const desktopHorizontalPadding = 10
+    const desktopSpacing = 8
+    const desktopAvailableWidth = desktopPanelWidth - (desktopHorizontalPadding * 2) - (desktopSpacing * (floors.length - 1))
+    const desktopButtonWidth = Math.floor(desktopAvailableWidth / floors.length)
+    const desktopTop = 10
+
+    const vrButtonWidth = 50
+    const vrSpacing = 8
+    const vrStartX = -((floors.length * vrButtonWidth + (floors.length - 1) * vrSpacing) / 2)
     
     floors.forEach((floor, index) => {
       const button = new Button(`floor_button_${floor}`)
-      button.widthInPixels = buttonWidth
+      button.widthInPixels = isDesktopOverlay ? desktopButtonWidth : vrButtonWidth
       button.heightInPixels = buttonHeight
       button.cornerRadius = 8
       button.thickness = 3
@@ -1453,11 +1542,18 @@ class VRPanoramaViewer {
         button.color = 'white'
       }
       
-      // Position buttons at the top of the floorplan, but within visible area
-      button.leftInPixels = startX + (index * (buttonWidth + spacing))
-      button.topInPixels = -60 // Position closer to ensure visibility
-      button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
-      button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
+      if (isDesktopOverlay) {
+        button.leftInPixels = desktopHorizontalPadding + (index * (desktopButtonWidth + desktopSpacing))
+        button.topInPixels = desktopTop
+        button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
+        button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+      } else {
+        // Keep existing centered layout in VR mode
+        button.leftInPixels = vrStartX + (index * (vrButtonWidth + vrSpacing))
+        button.topInPixels = -60
+        button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
+        button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
+      }
       
       // Add text label
       const label = new TextBlock()
@@ -1573,7 +1669,7 @@ class VRPanoramaViewer {
     
     if (isCurrent) {
       // Current location marker - always prominent
-      marker.widthInPixels = 30
+      marker.widthInPixels = 13
       marker.heightInPixels = marker.widthInPixels
       marker.cornerRadius = marker.widthInPixels / 2
       marker.thickness = 3
@@ -1583,7 +1679,7 @@ class VRPanoramaViewer {
       this.floorplanCurrentLocationMarker = marker
     } else if (isSelectedFloor) {
       // Markers on selected floor - normal visibility
-      marker.widthInPixels = 34
+      marker.widthInPixels = 12
       marker.heightInPixels = marker.widthInPixels
       marker.cornerRadius = marker.widthInPixels / 2
       marker.thickness = 2
@@ -1597,6 +1693,7 @@ class VRPanoramaViewer {
       marker.thickness = 1
       marker.background = 'rgba(0, 150, 255, 0.5)' // Blue for same floor
       marker.color = 'rgba(255, 255, 255, 0.6)' // White border
+      marker.isVisible = false // Hide by default, can be toggled if needed
     }
     
     // Add hover effects for better interaction (only for clickable markers)
@@ -1658,7 +1755,7 @@ class VRPanoramaViewer {
 
   private createViewDirectionIndicator(background: Rectangle): void {
     const currentData = this.panoramaData[this.currentPanorama]
-    if (!currentData) return
+    if (!currentData || !this.isVRActive) return
     
     // Apply aspect ratio correction to view direction coordinates
     const adjustedCoords = this.adjustCoordinatesForAspectRatio(currentData.map.x, currentData.map.y)
@@ -1824,15 +1921,6 @@ class VRPanoramaViewer {
       marker.dispose()
     })
     this.floorplanPositionMarkers = []
-    
-    // Clear floor switch buttons
-    this.floorSwitchButtons.forEach(button => {
-      if (button.parent) {
-        button.parent.removeControl(button)
-      }
-      button.dispose()
-    })
-    this.floorSwitchButtons = []
     
     // Clear current location marker
     if (this.floorplanCurrentLocationMarker) {

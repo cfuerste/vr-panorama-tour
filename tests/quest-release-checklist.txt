@@ -1,0 +1,35 @@
+Quest 3 loading release checks
+
+Automated: npm test && npm run build
+
+Implementation:
+- Desktop loads standard JPEG; phones load mobile JPEG.
+- VR displays a mobile preview, then upgrades to the existing HQ JPEG.
+- A ready cached HQ panorama skips the preview. Entering VR at the same
+  location preserves the visible desktop image while HQ loads.
+- One speculative download at a time, up to two neighboring VR previews,
+  scheduled 1.5 seconds after the current panorama finishes loading.
+- Navigation cancels obsolete downloads/uploads. Failures keep the last
+  ready view. Network timeout: 45 seconds; texture timeout: 30 seconds.
+- Compressed download cache: 24 MiB and 12 entries, least recently used eviction.
+- Panorama GPU cache: estimated RGBA8 256 MiB and 6 entries, with upload space
+  reserved before allocating. Current assets are at most 8K, 4K and 2K.
+  This is not a cap on total browser RAM; decode buffers, UI, render targets
+  and browser overhead are additional. New asset sizes require revalidation.
+- No image-format, refresh-rate, foveation or persistent-storage changes.
+
+Headset smoke test before release (not performed in this session):
+1. Open the deployed build, enter VR and visit at least ten locations.
+2. On a slow connection, verify old view -> preview -> sharp HQ without blank
+   frames, rotated images, changed hotspot alignment or map/caption glitches.
+3. Click different destinations quickly, including during the HQ upgrade.
+   Only the latest destination should win; returning to a cached view is fast.
+4. Temporarily interrupt connectivity. The prior view/preview must remain
+   usable; reconnect and click again to retry. No stuck navigation controls.
+5. Exit and re-enter VR during a download; verify the final mode and location.
+6. Verify desktop navigation and left-controller map/buttons still work.
+7. Repeat navigation for 10 minutes and check for texture corruption, context
+   loss or continued memory growth. Measure total memory on the actual headset.
+
+Node regression tests use controlled Babylon texture doubles; they cover the
+actual loading methods but do not substitute for GPU/headset visual validation.

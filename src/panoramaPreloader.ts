@@ -1,230 +1,142 @@
-// Panorama Preloader Manager
-interface PreloadedImage {
-  url: string
-  data: ArrayBuffer
+interface CachedImage {
+  blob: Blob
   objectUrl?: string
 }
 
-interface PreloadRequest {
-  type: 'PRELOAD_IMAGES'
-  images: string[]
-  basePath: string
-}
-
-interface PreloadResponse {
-  type: 'PRELOAD_COMPLETE' | 'PRELOAD_PROGRESS' | 'PRELOAD_ERROR'
-  imageUrl?: string
-  imageData?: ArrayBuffer
-  error?: string
-  progress?: number
-  total?: number
-}
-
+// Store compressed downloads only. Fetch is asynchronous; no worker-side copy
+// or decoded image cache is needed. The viewer owns GPU textures separately.
 export class PanoramaPreloader {
-  private worker: Worker
-  private workerBlobUrl: string
-  private preloadedImages = new Map<string, PreloadedImage>()
-  private onProgressCallback?: (progress: number, total: number) => void
-  private onCompleteCallback?: () => void
+  private images = new Map<string, CachedImage>()
+  private bytes = 0
+  private background: AbortController | null = null
+  private requests = new Set<AbortController>()
+  private disposed = false
+  private progress = { loaded: 0, total: 0 }
 
-  constructor() {
-    // Create worker inline to avoid import.meta.url issues in GitHub Actions
-    const workerScript = `
-      // Cache for loaded images
-      const imageCache = new Map();
+  private readonly maxBytes: number
+  private readonly maxEntries: number
 
-      self.addEventListener('message', async (event) => {
-        const { data } = event;
-
-        if (data.type === 'PRELOAD_IMAGES') {
-          await preloadImages(data.images, data.basePath);
-        }
-      });
-
-      async function preloadImages(imageUrls, basePath) {
-        const total = imageUrls.length;
-        let completed = 0;
-
-        console.log('[Worker] Starting preload of ' + total + ' images');
-
-        for (const imageUrl of imageUrls) {
-          try {
-            // URLs are now complete, just use them directly
-            const fullUrl = imageUrl;
-            
-            // Skip if already cached
-            if (imageCache.has(fullUrl)) {
-              completed++;
-              postMessage({
-                type: 'PRELOAD_PROGRESS',
-                imageUrl: fullUrl,
-                progress: completed,
-                total
-              });
-              continue;
-            }
-
-            console.log('[Worker] Preloading: ' + fullUrl);
-            
-            // Fetch the image
-            const response = await fetch(fullUrl);
-            if (!response.ok) {
-              throw new Error('Failed to fetch ' + fullUrl + ': ' + response.status);
-            }
-
-            const arrayBuffer = await response.arrayBuffer();
-            
-            // Cache the image data
-            imageCache.set(fullUrl, arrayBuffer);
-            
-            completed++;
-
-            // Send progress update
-            postMessage({
-              type: 'PRELOAD_PROGRESS',
-              imageUrl: fullUrl,
-              imageData: arrayBuffer,
-              progress: completed,
-              total
-            });
-
-          } catch (error) {
-            console.error('[Worker] Failed to preload ' + imageUrl + ':', error);
-            
-            postMessage({
-              type: 'PRELOAD_ERROR',
-              imageUrl: imageUrl,
-              error: error.message || 'Unknown error'
-            });
-          }
-        }
-
-        console.log('[Worker] Preload complete: ' + completed + '/' + total + ' images');
-        
-        postMessage({
-          type: 'PRELOAD_COMPLETE',
-          progress: completed,
-          total
-        });
-      }
-    `;
-
-    const blob = new Blob([workerScript], { type: 'application/javascript' });
-    this.workerBlobUrl = URL.createObjectURL(blob);
-    this.worker = new Worker(this.workerBlobUrl);
-
-    this.worker.addEventListener('message', this.handleWorkerMessage.bind(this))
-    this.worker.addEventListener('error', this.handleWorkerError.bind(this))
+  constructor(maxBytes = 24 * 1024 * 1024, maxEntries = 12) {
+    this.maxBytes = maxBytes
+    this.maxEntries = maxEntries
   }
 
-  private handleWorkerMessage(event: MessageEvent<PreloadResponse>) {
-    const { data } = event
+  private normalize(url: string, basePath = ''): string {
+    return new URL(url, new URL(basePath || '.', document.baseURI)).href
+  }
 
-    switch (data.type) {
-      case 'PRELOAD_PROGRESS':
-        if (data.imageUrl && data.imageData) {
-          // Clean up existing object URL to prevent memory leaks on Quest 3
-          const existing = this.preloadedImages.get(data.imageUrl)
-          if (existing?.objectUrl) {
-            URL.revokeObjectURL(existing.objectUrl)
-          }
+  private touch(url: string): CachedImage | undefined {
+    const entry = this.images.get(url)
+    if (entry) {
+      this.images.delete(url)
+      this.images.set(url, entry)
+    }
+    return entry
+  }
 
-          // Create object URL for immediate use
-          const blob = new Blob([data.imageData])
-          const objectUrl = URL.createObjectURL(blob)
-          
-          this.preloadedImages.set(data.imageUrl, {
-            url: data.imageUrl,
-            data: data.imageData,
-            objectUrl
-          })
-
-          console.log(`[Worker] Preloaded: ${data.imageUrl}`)
+  public async loadImage(url: string, signal?: AbortSignal): Promise<Blob> {
+    if (this.disposed) throw new Error('Panorama preloader disposed')
+    signal?.throwIfAborted()
+    const key = this.normalize(url)
+    const cached = this.touch(key)
+    if (cached) return cached.blob
+    const request = new AbortController()
+    const abort = () => request.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    this.requests.add(request)
+    const timeout = setTimeout(abort, 45000)
+    try {
+      const response = await fetch(key, { signal: request.signal })
+      if (!response.ok) throw new Error(`Panorama HTTP ${response.status}: ${key}`)
+      const blob = await response.blob()
+      request.signal.throwIfAborted()
+      if (blob.size <= this.maxBytes && this.maxEntries > 0) {
+        this.remove(key)
+        while (this.images.size && (this.bytes + blob.size > this.maxBytes || this.images.size >= this.maxEntries)) {
+          this.remove(this.images.keys().next().value!)
         }
-
-        if (this.onProgressCallback && data.progress !== undefined && data.total !== undefined) {
-          this.onProgressCallback(data.progress, data.total)
-        }
-        break
-
-      case 'PRELOAD_COMPLETE':
-        console.log('All panoramas preloaded!')
-        // Clean up old object URLs that are no longer needed (keep only recent ones)
-        this.cleanupOldObjectUrls()
-        if (this.onCompleteCallback) {
-          this.onCompleteCallback()
-        }
-        break
-
-      case 'PRELOAD_ERROR':
-        console.error(`Preload error for ${data.imageUrl}:`, data.error)
-        break
+        this.images.set(key, { blob })
+        this.bytes += blob.size
+      }
+      return blob
+    } finally {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abort)
+      this.requests.delete(request)
     }
   }
 
-  private cleanupOldObjectUrls(): void {
-    // Keep only the 20 most recently created object URLs to prevent memory buildup
-    const entries = Array.from(this.preloadedImages.entries())
-    if (entries.length > 20) {
-      const toRemove = entries.slice(0, entries.length - 20)
-      for (const [url, preloaded] of toRemove) {
-        if (preloaded.objectUrl) {
-          URL.revokeObjectURL(preloaded.objectUrl)
-        }
-        this.preloadedImages.delete(url)
-      }
-      console.log(`Cleaned up ${toRemove.length} old preloaded images for Quest 3 memory management`)
-    }
+  private remove(key: string): void {
+    const entry = this.images.get(key)
+    if (!entry) return
+    if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl)
+    this.bytes -= entry.blob.size
+    this.images.delete(key)
   }
 
-  private handleWorkerError(error: ErrorEvent) {
-    console.error('Worker error:', error)
+  public stopPreloading(): void {
+    this.background?.abort()
+    this.background = null
   }
 
   public startPreloading(
-    imageUrls: string[], 
-    basePath: string,
+    imageUrls: string[], basePath: string,
     onProgress?: (progress: number, total: number) => void,
     onComplete?: () => void
-  ) {
-    this.onProgressCallback = onProgress
-    this.onCompleteCallback = onComplete
-
-    const message: PreloadRequest = {
-      type: 'PRELOAD_IMAGES',
-      images: imageUrls,
-      basePath
-    }
-
-    this.worker.postMessage(message)
+  ): void {
+    this.stopPreloading()
+    if (this.disposed) return
+    const controller = new AbortController()
+    this.background = controller
+    const urls = [...new Set(imageUrls.map(url => this.normalize(url, basePath)))]
+    this.progress = { loaded: 0, total: urls.length }
+    void (async () => {
+      try {
+        // One speculative download at a time, cancelled when navigation starts.
+        for (const url of urls) {
+          controller.signal.throwIfAborted()
+          try {
+            await this.loadImage(url, controller.signal)
+            controller.signal.throwIfAborted()
+            this.progress.loaded++
+            onProgress?.(this.progress.loaded, urls.length)
+          } catch (error) {
+            if (controller.signal.aborted) return
+            console.warn('Panorama prefetch failed:', url, error)
+          }
+        }
+        onComplete?.()
+      } finally {
+        if (this.background === controller) this.background = null
+      }
+    })().catch(error => {
+      if (!controller.signal.aborted) console.warn('Panorama prefetch failed:', error)
+    })
   }
 
   public getPreloadedImage(url: string): string | null {
-    const preloaded = this.preloadedImages.get(url)
-    return preloaded?.objectUrl || null
+    const entry = this.touch(this.normalize(url))
+    if (!entry) return null
+    entry.objectUrl ??= URL.createObjectURL(entry.blob)
+    return entry.objectUrl
   }
 
   public isImagePreloaded(url: string): boolean {
-    return this.preloadedImages.has(url)
+    return this.images.has(this.normalize(url))
   }
 
   public getPreloadProgress(): { loaded: number; total: number } {
-    return {
-      loaded: this.preloadedImages.size,
-      total: this.preloadedImages.size // This would need to be tracked differently for accurate total
-    }
+    return { ...this.progress }
   }
 
-  public dispose() {
-    // Clean up object URLs
-    for (const image of this.preloadedImages.values()) {
-      if (image.objectUrl) {
-        URL.revokeObjectURL(image.objectUrl)
-      }
-    }
-    
-    this.preloadedImages.clear()
-    this.worker.terminate()
-    URL.revokeObjectURL(this.workerBlobUrl)
+  public getCacheStats(): { bytes: number; entries: number } {
+    return { bytes: this.bytes, entries: this.images.size }
+  }
+
+  public dispose(): void {
+    this.disposed = true
+    this.stopPreloading()
+    for (const request of this.requests) request.abort()
+    for (const key of this.images.keys()) this.remove(key)
   }
 }

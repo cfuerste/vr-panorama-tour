@@ -54,6 +54,7 @@ interface CachedPhotoDome {
   photoDome: PhotoDome
   isActive: boolean
   lastUsed: number
+  bytes: number
 }
 
 class VRPanoramaViewer {
@@ -85,12 +86,13 @@ class VRPanoramaViewer {
   private vrCaptionRenderObserver: any = null
   private isVREmulationMode = false
   private preloader: PanoramaPreloader
-  private initialPreloadingDone = false
+  private loadController: AbortController | null = null
+  private preloadTimer: ReturnType<typeof setTimeout> | null = null
   
   // Panorama cache system - QUEST 3 OPTIMIZED
   private panoramaCache: Map<string, CachedPhotoDome> = new Map()
   private maxCacheSize = 6 // Reduced for Quest 3 - more conservative memory usage
-  private cacheCleanupThreshold = 8 // Start cleanup earlier to prevent memory pressure
+  private maxTextureBytes = 256 * 1024 * 1024 // Includes current view and pending upload
 
   constructor(canvas: HTMLCanvasElement) {
     // Initialize engine with VR optimizations and improved WebGL error handling
@@ -160,6 +162,15 @@ class VRPanoramaViewer {
     // Initialize preloader
     this.preloader = new PanoramaPreloader()
 
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.preloader.stopPreloading()
+        if (this.preloadTimer) clearTimeout(this.preloadTimer)
+      } else {
+        this.schedulePreloading()
+      }
+    })
+
     this.init()
   }
 
@@ -212,79 +223,26 @@ class VRPanoramaViewer {
     }
   }
 
-  private getCacheKey(panoramaId: string, isVR: boolean, isMobile: boolean): string {
-    let suffix = '_std.jpg'
-    if (isMobile && !isVR) {
-      suffix = '_mobile.jpg'
-    } else if (isVR) {
-      suffix = '_hq.jpg'
-    }
-    return `${panoramaId}_${suffix}`
+  private imagePath(panoramaId: string, quality: 'mobile' | 'std' | 'hq'): string {
+    const image = this.panoramaData[panoramaId].image.replace(/\.jpg$/i, `_${quality}.jpg`)
+    return `${import.meta.env.BASE_URL}panos/optimized_natural/${image}`
   }
 
-  private cleanupCache(): void {
-    if (this.panoramaCache.size <= this.maxCacheSize) {
-      return
-    }
-
-    console.log(`Cache cleanup: ${this.panoramaCache.size} entries, target: ${this.maxCacheSize}`)
-
-    // Sort by last used time (oldest first)
-    const cacheEntries = Array.from(this.panoramaCache.entries())
-      .sort((a, b) => a[1].lastUsed - b[1].lastUsed)
-
-    // Remove oldest entries, but never remove the currently active one
-    const entriesToRemove = cacheEntries.slice(0, this.panoramaCache.size - this.maxCacheSize)
-    
-    for (const [key, cachedDome] of entriesToRemove) {
-      if (!cachedDome.isActive) {
-        console.log(`Removing cached panorama: ${key}`)
-        cachedDome.photoDome.dispose()
-        this.panoramaCache.delete(key)
-      }
-    }
-
-    console.log(`Cache cleanup complete: ${this.panoramaCache.size} entries remaining`)
+  private targetQuality(): 'mobile' | 'std' | 'hq' {
+    if (this.isVRActive) return 'hq'
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+      ? 'mobile' : 'std'
   }
 
-  private shouldPreload(): boolean {
-    // QUEST 3 MEMORY-AWARE PRELOADING
-    try {
-      // Check if we have memory information (Chrome/Edge)
-      if ('memory' in performance && (performance as any).memory) {
-        const memInfo = (performance as any).memory
-        const memoryUsage = memInfo.usedJSHeapSize / memInfo.totalJSHeapSize
-        
-        if (memoryUsage > 0.75) { // Above 75% memory usage
-          console.log(`🚫 Skipping preload: High memory usage (${(memoryUsage * 100).toFixed(1)}%)`)
-          return false
-        }
-      }
-
-      // Check cache size (don't preload if cache is getting full)
-      if (this.panoramaCache.size >= this.maxCacheSize - 2) {
-        console.log(`🚫 Skipping preload: Cache nearly full (${this.panoramaCache.size}/${this.maxCacheSize})`)
-        return false
-      }
-
-      // In VR mode, be more conservative
-      if (this.isVRActive && this.panoramaCache.size >= 6) {
-        console.log(`🚫 Skipping preload: VR mode with sufficient cache (${this.panoramaCache.size})`)
-        return false
-      }
-
-      // Check if user is actively navigating (disable background preloading during rapid navigation)
-      const now = Date.now()
-      if (this.lastNavigationTime && (now - this.lastNavigationTime) < 3000) {
-        console.log(`🚫 Skipping preload: Recent navigation detected`)
-        return false
-      }
-
-      return true
-    } catch (error) {
-      // If any memory checks fail, default to allowing preload but log the issue
-      console.warn('Memory check failed, allowing preload:', error)
-      return true
+  private cleanupCache(reserveBytes = 0, reserveEntries = 0): void {
+    let bytes = [...this.panoramaCache.values()].reduce((sum, entry) => sum + entry.bytes, 0)
+    const oldest = [...this.panoramaCache.entries()].sort((a, b) => a[1].lastUsed - b[1].lastUsed)
+    for (const [key, entry] of oldest) {
+      if (bytes + reserveBytes <= this.maxTextureBytes && this.panoramaCache.size + reserveEntries <= this.maxCacheSize) break
+      if (entry.isActive) continue
+      entry.photoDome.dispose()
+      this.panoramaCache.delete(key)
+      bytes -= entry.bytes
     }
   }
 
@@ -312,7 +270,6 @@ class VRPanoramaViewer {
     }
   }
 
-  private lastNavigationTime: number = 0
   private preloadingMode: 'conservative' | 'balanced' | 'aggressive' = 'conservative' // Quest 3 default
   private performanceMonitor = {
     frameDrops: 0,
@@ -321,225 +278,177 @@ class VRPanoramaViewer {
   }
 
   private async loadPanorama(panoramaId: string): Promise<void> {
-    const panoramaInfo = this.panoramaData[panoramaId]
-    if (!panoramaInfo) {
-      console.error('Panorama not found:', panoramaId)
-      return
-    }
+    if (!this.panoramaData[panoramaId]) return
+    this.loadController?.abort()
+    this.preloader.stopPreloading()
+    if (this.preloadTimer) clearTimeout(this.preloadTimer)
+    const controller = new AbortController()
+    this.loadController = controller
+    const quality = this.targetQuality()
+    const finalKey = this.imagePath(panoramaId, quality)
 
-    // Choose appropriate image resolution based on device
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-    const isVR = this.isVRActive
-    
-    const cacheKey = this.getCacheKey(panoramaId, isVR, isMobile)
-
-    // Mark all cached panoramas as inactive
-    this.panoramaCache.forEach(cached => {
-      cached.isActive = false
-      if (cached.photoDome.mesh) {
-        cached.photoDome.mesh.setEnabled(false)
-      }
-    })
-
-    // Clear hotspots (they need to be recreated for each panorama)
-    this.clearHotspots()
-
-    let photoDome: PhotoDome
-
-    // Check if panorama is already cached
-    if (this.panoramaCache.has(cacheKey)) {
-      console.log(`Using cached panorama: ${cacheKey}`)
-      const cached = this.panoramaCache.get(cacheKey)!
-      photoDome = cached.photoDome
-      cached.isActive = true
-      cached.lastUsed = Date.now()
-      
-      // Enable the cached photodome
-      if (photoDome.mesh) {
-        photoDome.mesh.setEnabled(true)
-      }
-    } else {
-      console.log(`Loading new panorama: ${cacheKey}`)
-      
-      // Determine image path
-      let imageSuffix = '_std.jpg' // Default to standard resolution
-      if (isMobile && !isVR) {
-        imageSuffix = '_mobile.jpg' // Lower resolution for mobile
-      } else if (isVR) {
-        imageSuffix = '_hq.jpg' // Highest resolution for VR
-      }
-      
-      const basePath = import.meta.env.BASE_URL
-      const imagePath = `${basePath}panos/optimized_natural/${panoramaInfo.image.replace('.jpg', imageSuffix)}`
-      
-      // Check if image is preloaded
-      const preloadedUrl = this.preloader.getPreloadedImage(imagePath)
-      const finalImagePath = preloadedUrl || imagePath
-      
-      try {
-        photoDome = new PhotoDome(
-          `dome_${cacheKey}`,
-          finalImagePath,
-          {
-            resolution: isVR ? 128 : 64, // Higher resolution for VR
-            size: 1000,
-            useDirectMapping: false, // Keep original mapping for correct orientation
-            halfDomeMode: false
-          },
-          this.scene
-        )
-
-        // Fix for VR headsets - ensure proper material configuration
-        if (photoDome.material) {
-          // Don't freeze the material immediately in VR to allow proper setup
-          if (!this.isVRActive) {
-            photoDome.material.freeze()
+    try {
+      // Revisited panoramas already on the GPU can be shown immediately.
+      const cached = this.panoramaCache.get(finalKey)
+      if (cached) {
+        this.showPanorama(panoramaId, cached)
+      } else if (quality === 'hq') {
+        const previewKey = this.imagePath(panoramaId, 'mobile')
+        try {
+          // On VR entry the same location is already visible at desktop quality.
+          if (this.currentPanorama !== panoramaId || !this.currentPhotoDome) {
+            const preview = await this.preparePanorama(previewKey, true, controller.signal)
+            controller.signal.throwIfAborted()
+            this.showPanorama(panoramaId, preview)
           }
-          
-          // Ensure backface culling is disabled for proper inside-out rendering
-          photoDome.material.backFaceCulling = false
-          
-          // Force texture refresh for VR
-          if (this.isVRActive && photoDome.material.diffuseTexture) {
-            photoDome.material.diffuseTexture.updateSamplingMode(1) // Linear sampling
-          }
+        } catch (error) {
+          if (controller.signal.aborted) return
+          console.warn('Preview unavailable; loading full panorama:', error)
+          const full = await this.preparePanorama(finalKey, true, controller.signal)
+          controller.signal.throwIfAborted()
+          this.showPanorama(panoramaId, full)
+          this.finishPanoramaLoad(controller)
+          return
         }
-
-        // For VR compatibility without changing orientation
-        if (photoDome.mesh) {
-          // Ensure proper inside-out rendering without flipping faces
-          photoDome.mesh.material = photoDome.material
-          
-          // Only adjust for VR if needed, without affecting desktop orientation
-          if (this.isVRActive) {
-            photoDome.mesh.flipFaces(false) // Don't flip faces to maintain orientation
-          }
-        }
-
-        // Add to cache
-        this.panoramaCache.set(cacheKey, {
-          photoDome,
-          isActive: true,
-          lastUsed: Date.now()
-        })
-
-        // Cleanup cache if it gets too large
-        if (this.panoramaCache.size > this.cacheCleanupThreshold) {
-          this.cleanupCache()
-        }
-
-      } catch (error) {
-        console.error('Failed to load panorama:', panoramaId, error)
+        // Resolve navigation once the preview is visible. HQ work is cancellable
+        // and can never replace a newer navigation or a changed viewing mode.
+        void this.upgradePanorama(panoramaId, finalKey, controller)
         return
+      } else {
+        const full = await this.preparePanorama(finalKey, false, controller.signal)
+        controller.signal.throwIfAborted()
+        this.showPanorama(panoramaId, full)
+      }
+      this.finishPanoramaLoad(controller)
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        console.error('Panorama failed; keeping the current view:', panoramaId, error)
+        this.finishPanoramaLoad(controller)
       }
     }
+  }
 
-    this.currentPhotoDome = photoDome
-    this.currentPanorama = panoramaId
-
-    // Create hotspots for navigation
-    this.createHotspots(panoramaInfo.links)
-
-    // Update floorplan
-    this.updateFloorplan()
-
-    // Update VR caption if in VR mode
-    this.updateVRCaption()
-
-    // Update info text
-    this.updateInfoText()
-
-    // Only preload connected panoramas after initial preloading is complete
-    if (this.initialPreloadingDone) {
-      this.preloadConnectedPanoramas(panoramaId)
+  private async upgradePanorama(panoramaId: string, key: string, controller: AbortController): Promise<void> {
+    try {
+      const full = await this.preparePanorama(key, true, controller.signal)
+      controller.signal.throwIfAborted()
+      this.showPanorama(panoramaId, full)
+    } catch (error) {
+      if (!controller.signal.aborted) console.warn('HQ unavailable; keeping preview:', error)
+    } finally {
+      if (!controller.signal.aborted) this.finishPanoramaLoad(controller)
     }
+  }
 
-    console.log(`Cache status: ${this.panoramaCache.size} panoramas cached`)
+  private finishPanoramaLoad(controller: AbortController): void {
+    if (this.loadController !== controller) return
+    this.loadController = null
+    this.schedulePreloading()
+  }
+
+  private async preparePanorama(key: string, isVR: boolean, signal: AbortSignal): Promise<CachedPhotoDome> {
+    signal.throwIfAborted()
+    const cached = this.panoramaCache.get(key)
+    if (cached) return cached
+
+    const blob = await this.preloader.loadImage(key, signal)
+    signal.throwIfAborted()
+    // Existing assets are at most 8K/4K/2K. Reserve space BEFORE GPU upload,
+    // including the still-visible panorama. Mipmaps are explicitly disabled.
+    const expectedBytes = (key.endsWith('_hq.jpg') ? 128 : key.endsWith('_std.jpg') ? 32 : 8) * 1024 * 1024
+    this.cleanupCache(expectedBytes, 1)
+    const objectUrl = URL.createObjectURL(blob)
+    let dome: PhotoDome | null = null
+    try {
+      dome = new PhotoDome(`dome_${key}`, objectUrl, {
+        resolution: isVR ? 128 : 64,
+        size: 1000,
+        useDirectMapping: false,
+        halfDomeMode: false,
+        generateMipMaps: false
+      }, this.scene)
+      dome.mesh.setEnabled(false)
+      const loadingDome = dome
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          clearTimeout(timeout)
+          signal.removeEventListener('abort', abort)
+          loadingDome.onLoadObservable.remove(loaded)
+          loadingDome.onLoadErrorObservable.remove(failed)
+        }
+        const abort = () => { cleanup(); reject(new DOMException('Navigation cancelled', 'AbortError')) }
+        const loaded = loadingDome.onLoadObservable.addOnce(() => { cleanup(); resolve() })
+        const failed = loadingDome.onLoadErrorObservable.addOnce(message => { cleanup(); reject(new Error(message)) })
+        const timeout = setTimeout(() => { cleanup(); reject(new Error('Panorama texture load timed out')) }, 30000)
+        signal.addEventListener('abort', abort, { once: true })
+        if (signal.aborted) abort()
+        else if (loadingDome.photoTexture.isReady()) { cleanup(); resolve() }
+      })
+      signal.throwIfAborted()
+      dome.material.backFaceCulling = false
+      if (!isVR) dome.material.freeze()
+      const size = dome.photoTexture.getSize()
+      const entry = { photoDome: dome, isActive: false, lastUsed: Date.now(), bytes: size.width * size.height * 4 }
+      this.panoramaCache.set(key, entry)
+      return entry
+    } catch (error) {
+      dome?.dispose()
+      throw error
+    } finally {
+      // The GPU owns the uploaded pixels; don't retain a second blob URL.
+      URL.revokeObjectURL(objectUrl)
+    }
+  }
+
+  private showPanorama(panoramaId: string, entry: CachedPhotoDome): void {
+    const locationChanged = this.currentPanorama !== panoramaId || !this.currentPhotoDome
+    if (!locationChanged && this.currentPhotoDome) {
+      // PhotoDome initially faces the camera. Preserve the preview's orientation
+      // if the wearer turned their head while the HQ texture was downloading.
+      entry.photoDome.rotation.copyFrom(this.currentPhotoDome.rotation)
+    }
+    for (const cached of this.panoramaCache.values()) {
+      cached.isActive = cached === entry
+      cached.photoDome.mesh.setEnabled(cached.isActive)
+    }
+    entry.lastUsed = Date.now()
+    this.currentPhotoDome = entry.photoDome
+    this.currentPanorama = panoramaId
+    // Quality upgrades only replace the image; leave interactive UI intact.
+    if (locationChanged) {
+      this.clearHotspots()
+      this.createHotspots(this.panoramaData[panoramaId].links)
+      this.updateFloorplan()
+      this.updateVRCaption()
+      this.updateInfoText()
+    }
+    this.cleanupCache()
   }
 
   private startBackgroundPreloading(): void {
-    if (!this.panoramaData || Object.keys(this.panoramaData).length === 0) {
-      return
-    }
+    this.schedulePreloading()
+  }
 
-    // QUEST 3 OPTIMIZATION: Delay initial preloading to allow user interaction first
-    setTimeout(() => {
-      if (this.shouldPreload()) {
-        console.log('🔄 Starting delayed background preloading for Quest 3 optimization')
-        this.preloadConnectedPanoramas(this.currentPanorama)
-      } else {
-        console.log('⚠️ Skipping initial background preloading due to constraints')
-      }
-      this.initialPreloadingDone = true
-    }, 2000) // 2 second delay to prioritize initial rendering
+  private schedulePreloading(): void {
+    if (this.preloadTimer) clearTimeout(this.preloadTimer)
+    this.preloadTimer = setTimeout(() => {
+      this.preloadTimer = null
+      if (!document.hidden && !this.loadController) this.preloadConnectedPanoramas(this.currentPanorama)
+    }, 1500)
   }
 
   private preloadConnectedPanoramas(panoramaId: string): void {
-    const currentPanorama = this.panoramaData[panoramaId]
-    if (!currentPanorama) return
-
-    // QUEST 3 OPTIMIZATION: Only preload immediate next panoramas, not all qualities
-    const connectedImages: string[] = []
-    const basePath = import.meta.env.BASE_URL
-
-    // QUEST 3 OPTIMIZATION: Adaptive preloading based on mode
-    let maxLinks: number
-    switch (this.preloadingMode) {
-      case 'conservative':
-        maxLinks = this.isVRActive ? 2 : 3 // Even less in VR
-        break
-      case 'balanced':
-        maxLinks = this.isVRActive ? 3 : 4
-        break
-      case 'aggressive':
-        maxLinks = this.isVRActive ? 4 : 6
-        break
-    }
-    
-    const limitedLinks = currentPanorama.links.slice(0, maxLinks)
-
-    limitedLinks.forEach(link => {
-      const targetPanorama = this.panoramaData[link.to]
-      if (targetPanorama) {
-        const baseImageName = targetPanorama.image.replace('.jpg', '')
-        const imagePath = `panos/optimized_natural/`
-        const origin = window.location.origin
-        
-        // QUEST 3 OPTIMIZATION: Only preload the most appropriate quality
-        let imageUrl: string
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-        
-        if (this.isVRActive) {
-          // VR: Preload standard quality (good balance for Quest 3)
-          imageUrl = `${origin}${basePath}${imagePath}${baseImageName}_std.jpg`
-        } else if (isMobile) {
-          // Mobile: Preload mobile quality
-          imageUrl = `${origin}${basePath}${imagePath}${baseImageName}_mobile.jpg`
-        } else {
-          // Desktop: Preload standard quality
-          imageUrl = `${origin}${basePath}${imagePath}${baseImageName}_std.jpg`
-        }
-        
-        connectedImages.push(imageUrl)
-      }
-    })
-
-    // QUEST 3 OPTIMIZATION: Check memory usage before preloading
-    if (connectedImages.length > 0 && this.shouldPreload()) {
-      console.log(`🔄 Quest 3 Optimized Preloading: ${connectedImages.length} images (limited)`)
-      this.preloader.startPreloading(
-        connectedImages,
-        '', // Empty base path since we already have complete URLs
-        // (progress, total) => {
-        //   this.updatePreloadProgress(progress, total)
-        // },
-        () => {
-          this.updateInfoText()
-        }
-      )
-    } else {
-      console.log('⚠️ Skipping preload due to memory constraints or no images to preload')
-    }
+    const current = this.panoramaData[panoramaId]
+    if (!current || document.hidden) return
+    // VR prefetches the exact preview displayed on navigation. Desktop keeps
+    // its existing standard-quality behavior. Never speculate on HQ downloads.
+    const quality = this.isVRActive ? 'mobile' : this.targetQuality()
+    const maxLinks = this.isVRActive ? 2 : this.preloadingMode === 'conservative' ? 3 : 4
+    const images = current.links
+      .filter(link => !!this.panoramaData[link.to])
+      .slice(0, maxLinks)
+      .map(link => this.imagePath(link.to, quality))
+    this.preloader.startPreloading(images, '', undefined, () => this.updateInfoText())
   }
 
   // private updatePreloadProgress(progress: number, total: number): void {
@@ -693,8 +602,6 @@ class VRPanoramaViewer {
   }
 
   private async navigateToPanorama(targetPanorama: string): Promise<void> {
-    // Track navigation timing for preload optimization
-    this.lastNavigationTime = Date.now()
     await this.loadPanorama(targetPanorama)
   }
 
@@ -1122,6 +1029,7 @@ class VRPanoramaViewer {
     
     // Force a scene refresh
     this.scene.render()
+    void this.loadPanorama(this.currentPanorama)
     
     console.log('🥽 VR mode setup complete - desktop UI should be hidden')
   }
@@ -1183,6 +1091,7 @@ class VRPanoramaViewer {
 
     // Recreate floorplan as viewport overlay in desktop mode.
     this.setupFloorplanUI()
+    void this.loadPanorama(this.currentPanorama)
     
     console.log('🖥️  Desktop UI restoration complete')
   }

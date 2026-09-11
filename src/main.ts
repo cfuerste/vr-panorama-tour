@@ -1331,7 +1331,7 @@ class VRPanoramaViewer {
     // Create floorplan plane
     const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { width: floorplanWidth, height: floorplanHeight }, this.scene)
     floorplanPlane.parent = this.floorplanContainer
-    
+    floorplanPlane.rotation.y = Math.PI
     // The default plane faces -Z, toward the wearer when the controller points
     // forward (+Z in this scene). Keep +Y up for both the GUI and its hit targets.
     

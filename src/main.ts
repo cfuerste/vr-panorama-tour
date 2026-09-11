@@ -68,12 +68,14 @@ class VRPanoramaViewer {
   private currentPanorama: string = 'Panorama_Außenanlagen_001'
   private currentLocationLabel: string = 'Drehgestelllager'
   private floorplanUI: AdvancedDynamicTexture | null = null
+  private floorButtonsUI: AdvancedDynamicTexture | null = null
   private floorplanContainer: TransformNode | null = null
   private floorplanPositionMarkers: Control[] = []
   private floorplanCurrentLocationMarker: Control | null = null
   private floorplanViewDirectionIndicator: Control | null = null
   private floorplanUpdateObserver: any = null
   private desktopFloorplanPanel: Rectangle | null = null
+  private desktopFloorButtonsPanel: Rectangle | null = null
   private selectedFloor: string = 'EG' // Currently selected floor for floorplan view
   private floorplanImage: Image | null = null // Reference to floorplan image for updating
   private floorSwitchButtons: Control[] = [] // Array to store floor switch buttons
@@ -1261,10 +1263,15 @@ class VRPanoramaViewer {
       button.dispose()
     })
     this.floorSwitchButtons = []
+    this.desktopFloorButtonsPanel?.dispose()
+    this.desktopFloorButtonsPanel = null
 
     this.clearFloorplanMarkers()
 
     if (this.floorplanContainer) {
+      if (this.floorplanUI !== this.desktopUI) this.floorplanUI?.dispose()
+      this.floorButtonsUI?.dispose()
+      this.floorButtonsUI = null
       this.floorplanContainer.dispose()
       this.floorplanContainer = null
     }
@@ -1289,7 +1296,7 @@ class VRPanoramaViewer {
       background.color = 'white'
       background.thickness = 2
       background.background = 'rgba(255, 255, 255, 0.9)'
-      background.top = '20px'
+      background.top = '80px'
       background.left = '-20px'
       background.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT
       background.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
@@ -1302,7 +1309,19 @@ class VRPanoramaViewer {
       this.floorplanImage.stretch = Image.STRETCH_UNIFORM
       background.addControl(this.floorplanImage)
 
-      this.addFloorSwitchButtons(background)
+      const buttonRow = new Rectangle('desktop_floor_buttons')
+      buttonRow.widthInPixels = 320
+      buttonRow.heightInPixels = 50
+      buttonRow.topInPixels = 20
+      buttonRow.leftInPixels = -20
+      buttonRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT
+      buttonRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+      buttonRow.thickness = 0
+      buttonRow.cornerRadius = 10
+      buttonRow.background = 'rgba(255, 255, 255, 0.9)'
+      this.desktopUI.addControl(buttonRow)
+      this.desktopFloorButtonsPanel = buttonRow
+      this.addFloorSwitchButtons(buttonRow)
       this.addFloorplanPositionMarkers(background, this.selectedFloor)
       this.setupFloorplanUpdateObserver()
       this.updateFloorplan()
@@ -1364,8 +1383,8 @@ class VRPanoramaViewer {
     this.floorplanImage.stretch = Image.STRETCH_UNIFORM
     background.addControl(this.floorplanImage)
 
-    // Add floor switching buttons
-    this.addFloorSwitchButtons(background)
+    // Give floor buttons their own row, outside the unchanged map surface.
+    this.setupVRFloorButtons(floorplanPlane, floorplanWidth, floorplanHeight)
 
     // Add interactive position markers for all floors (with blending)
     this.addFloorplanPositionMarkers(background, this.selectedFloor)
@@ -1385,6 +1404,21 @@ class VRPanoramaViewer {
 
     // Add current position indicator
     this.updateFloorplan()
+  }
+
+  private setupVRFloorButtons(mapPlane: Mesh, mapWidth: number, mapHeight: number): void {
+    const rowHeight = mapWidth * 50 / 320
+    const row = MeshBuilder.CreatePlane('floor_buttons', { width: mapWidth, height: rowHeight }, this.scene)
+    row.parent = mapPlane
+    row.position.y = (mapHeight + rowHeight) / 2 + 0.01
+    this.floorButtonsUI = AdvancedDynamicTexture.CreateForMesh(row, 960, 150)
+    this.floorButtonsUI.idealWidth = 320
+    const background = new Rectangle('floor_buttons_background')
+    background.thickness = 0
+    background.cornerRadius = 10
+    background.background = 'rgba(255, 255, 255, 0.9)'
+    this.floorButtonsUI.addControl(background)
+    this.addFloorSwitchButtons(background)
   }
 
   private attachFloorplanToController(controller: any): void {
@@ -1610,18 +1644,11 @@ class VRPanoramaViewer {
     // Apply aspect ratio correction to coordinates
     const adjustedCoords = this.adjustCoordinatesForAspectRatio(data.map.x, data.map.y)
     
-    // Use percentage positioning for better scaling
-    marker.left = `${(adjustedCoords.x * 100)}%`
-    marker.top = `${(adjustedCoords.y * 100)}%`
-    marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
-    marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-    if (this.isVRActive) {
-      // Map coordinates denote the marker's center, not its upper-left corner.
-      marker.left = `${(adjustedCoords.x - 0.5) * 100}%`
-      marker.top = `${(adjustedCoords.y - 0.5) * 100}%`
-      marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
-      marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
-    }
+    // Coordinates denote the marker's center in both desktop and VR.
+    marker.left = `${(adjustedCoords.x - 0.5) * 100}%`
+    marker.top = `${(adjustedCoords.y - 0.5) * 100}%`
+    marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
+    marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER
     
     // Add click handler for navigation
     marker.onPointerClickObservable.add(() => {
@@ -1643,12 +1670,14 @@ class VRPanoramaViewer {
     const floorplanImageHeight = 751
     const aspectRatio = floorplanImageWidth / floorplanImageHeight // ~1.33
     
-    // Match STRETCH_UNIFORM's letterboxing in the VR texture; retain the
-    // existing desktop coordinate mapping.
+    // Match STRETCH_UNIFORM's letterboxing within the image's parent.
     let adjustedX = x
     let adjustedY = y
     
-    const containerAspectRatio = this.isVRActive ? 960 / 640 : 1
+    const desktopWidth = this.desktopFloorplanPanel?.widthInPixels ?? 320
+    const desktopHeight = this.desktopFloorplanPanel?.heightInPixels ?? 250
+    const border = this.desktopFloorplanPanel?.thickness ?? 2
+    const containerAspectRatio = this.isVRActive ? 960 / 640 : (desktopWidth - 2 * border) / (desktopHeight - 2 * border)
     if (aspectRatio > containerAspectRatio) {
       // Image is wider - letterboxed (black bars top/bottom)
       const imageHeightInContainer = containerAspectRatio / aspectRatio
@@ -1664,7 +1693,7 @@ class VRPanoramaViewer {
 
   private createViewDirectionIndicator(background: Rectangle): void {
     const currentData = this.panoramaData[this.currentPanorama]
-    if (!currentData || !this.isVRActive) return
+    if (!currentData) return
     
     // Apply aspect ratio correction to view direction coordinates
     const adjustedCoords = this.adjustCoordinatesForAspectRatio(currentData.map.x, currentData.map.y)
@@ -1717,32 +1746,26 @@ class VRPanoramaViewer {
   private updateViewAngle(indicatorL: Control, indicatorR: Control): void {
     // Get camera rotation to determine view direction
     let camera = this.scene.activeCamera
-    if (this.xrHelper && this.xrHelper.baseExperience.camera) {
+    if (this.isVRActive && this.xrHelper?.baseExperience.camera) {
       camera = this.xrHelper.baseExperience.camera
     }
     if (!camera) camera = this.camera
     if (!camera) return
     
-    // Convert camera Y rotation to radians
-    let cameraYRotation = 0
-    if (camera instanceof UniversalCamera) {
-      cameraYRotation = camera.rotation.y
-    } else {
-      // For WebXR camera, get rotation from transform
-      const forward = camera.getForwardRay().direction
-      cameraYRotation = Math.atan2(forward.x, forward.z) - Math.PI / 2
-    }
+    // Use the actual viewing direction in both modes. The floorplan's heading
+    // origin is a quarter-turn from camera +Z; desktop previously omitted it.
+    const forward = camera.getForwardRay().direction
+    const cameraYRotation = Math.atan2(forward.x, forward.z) - Math.PI / 2
     
     // Get view angle from metadata
     const viewAngleInDegrees = indicatorL.metadata?.viewAngle || 60
     const halfViewAngleInRadians = Tools.ToRadians(viewAngleInDegrees / 2)
     
     // Calculate rotations for left and right sides of the view angle
-    // The panel's in-plane half-turn must not reverse the already-correct
-    // visible heading. Counter-rotate the rays around their marker anchor.
-    const panelRotation = this.isVRActive ? Math.PI : 0
-    const leftRotation = cameraYRotation - halfViewAngleInRadians - panelRotation
-    const rightRotation = cameraYRotation + halfViewAngleInRadians - panelRotation
+    // The upright panel already supplies the half-turn. Keep the camera's
+    // turning direction and let the rays point ahead rather than behind.
+    const leftRotation = cameraYRotation - halfViewAngleInRadians
+    const rightRotation = cameraYRotation + halfViewAngleInRadians
     
     // Apply rotations
     indicatorL.transformCenterX = 0.5

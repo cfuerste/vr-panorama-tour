@@ -1332,8 +1332,9 @@ class VRPanoramaViewer {
     const floorplanPlane = MeshBuilder.CreatePlane('floorplan', { width: floorplanWidth, height: floorplanHeight }, this.scene)
     floorplanPlane.parent = this.floorplanContainer
     floorplanPlane.rotation.y = Math.PI
-    // The default plane faces -Z, toward the wearer when the controller points
-    // forward (+Z in this scene). Keep +Y up for both the GUI and its hit targets.
+    // Keep the controller-facing side and turn the entire panel upright.
+    // Rotating the mesh also keeps the GUI's ray-picked hit targets aligned.
+    floorplanPlane.rotation.z = Math.PI
     
     if (!this.isVREmulationMode) {
       // Only offset when attached to controller
@@ -1686,16 +1687,8 @@ class VRPanoramaViewer {
     directionIndicatorR.background = 'rgba(255, 255, 0, 0.8)' // Yellow for visibility
     directionIndicatorR.thickness = 0
     
-    // Center both indicators on the position marker
-    directionIndicatorL.left = `${(adjustedCoords.x * 100)}%`
-    directionIndicatorL.top = `${(adjustedCoords.y * 100)}%`
-    directionIndicatorL.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
-    directionIndicatorL.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
-    
-    directionIndicatorR.left = `${(adjustedCoords.x * 100)}%`
-    directionIndicatorR.top = `${(adjustedCoords.y * 100)}%`
-    directionIndicatorR.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT
-    directionIndicatorR.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP
+    this.positionViewDirectionIndicator(directionIndicatorL, adjustedCoords)
+    this.positionViewDirectionIndicator(directionIndicatorR, adjustedCoords)
     
     // Set transform center to rotate around the base (where it connects to the position marker)
     directionIndicatorL.transformCenterX = 0.5  // Center horizontally
@@ -1745,8 +1738,11 @@ class VRPanoramaViewer {
     const halfViewAngleInRadians = Tools.ToRadians(viewAngleInDegrees / 2)
     
     // Calculate rotations for left and right sides of the view angle
-    const leftRotation = cameraYRotation - halfViewAngleInRadians
-    const rightRotation = cameraYRotation + halfViewAngleInRadians
+    // The panel's in-plane half-turn must not reverse the already-correct
+    // visible heading. Counter-rotate the rays around their marker anchor.
+    const panelRotation = this.isVRActive ? Math.PI : 0
+    const leftRotation = cameraYRotation - halfViewAngleInRadians - panelRotation
+    const rightRotation = cameraYRotation + halfViewAngleInRadians - panelRotation
     
     // Apply rotations
     indicatorL.transformCenterX = 0.5
@@ -1756,6 +1752,17 @@ class VRPanoramaViewer {
     indicatorR.transformCenterX = 0.5
     indicatorR.transformCenterY = 1.0 // Rotate around bottom
     indicatorR.rotation = rightRotation
+  }
+
+  private positionViewDirectionIndicator(indicator: Control, coords: { x: number; y: number }): void {
+    // The ray rotates around its bottom center. Align that point, rather than
+    // its top-left corner, with the centered panorama marker at every UI scale.
+    indicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER
+    indicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM
+    indicator.left = `${(coords.x - 0.5) * 100}%`
+    indicator.top = `${(coords.y - 1) * 100}%`
+    indicator.isHitTestVisible = false
+    indicator.isPointerBlocker = false
   }
 
   // Update the updateFloorplanMarkers method to handle the new view angle system
@@ -1785,12 +1792,10 @@ class VRPanoramaViewer {
       // Update position for both indicators
       const adjustedCoords = this.adjustCoordinatesForAspectRatio(currentData.map.x, currentData.map.y)
       
-      this.floorplanViewDirectionIndicator.left = `${(adjustedCoords.x * 100)}%`
-      this.floorplanViewDirectionIndicator.top = `${(adjustedCoords.y * 100)}%`
+      this.positionViewDirectionIndicator(this.floorplanViewDirectionIndicator, adjustedCoords)
       
       if (rightIndicator) {
-        rightIndicator.left = `${(adjustedCoords.x * 100)}%`
-        rightIndicator.top = `${(adjustedCoords.y * 100)}%`
+        this.positionViewDirectionIndicator(rightIndicator, adjustedCoords)
       }
       
       // Update the view angle
